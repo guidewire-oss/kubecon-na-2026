@@ -1,0 +1,7 @@
+flask==3.0.0
+werkzeug==3.0.1
+# Cloud storage SDKs — one per backend. boto3 for AWS S3, google-cloud-storage
+# for GCP Cloud Storage. Both are installed so the same image runs on either
+# cloud; only STORAGE_PROVIDER decides which one is used at runtime.
+boto3==1.34.0
+google-cloud-storage==2.18.0
