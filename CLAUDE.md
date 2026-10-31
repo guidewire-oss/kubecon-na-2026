@@ -7,5 +7,9 @@
 - The Application is defined once, in YAML; each stage's override policy picks its bucket component and HA trait. Overrides match traits by type, so a stage-specific trait goes in the override, not the base component
 - Behind Zscaler: `./demo.sh --zscaler`. The CA is mounted into the k3d nodes only at cluster creation, so run `./clean.sh` first
 - vela-core `CrashLoopBackOff` with `too many open files` = two k3d clusters on one Rancher Desktop VM (128 inotify instances); delete one or raise `fs.inotify.max_user_instances`
+- ACK's S3 controller reads ~20 bucket settings per reconcile and fails on any error; Floci 2.3.0 serves all but `GetBucketAbac`, which falls through harmlessly. Re-check before bumping Floci (README "How ACK reaches Floci")
+- ACK can't delete a non-empty bucket and has no forceDestroy; `clean.sh --apps-only` empties the `aws-ack` bucket through the API pod first
+- Adding or renaming a stage means updating `apps/bucket-browser.yaml`'s `BUCKETS` too (the bucket browser, `app/browser.py`); `apptest` fails until they match
+- The API stores pictures base64-decoded from `image_data`; `./show-buckets.sh --create [picture]` posts one to every stage
 - defkit 1.12 quirks are in `kubevela-bucket-floci-demo/devkit/README.md`
 - Dev containers can't run k3d; use `./demo.sh --skip-cluster --skip-build` against an existing context that already has `product-catalog:latest`

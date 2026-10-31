@@ -10,6 +10,8 @@ for both clouds — the "one interface" promise applied to the application tier.
 import os
 import json
 import uuid
+import base64
+import binascii
 from datetime import datetime
 from flask import Flask, request, jsonify
 
@@ -23,11 +25,21 @@ store = build_object_store()
 
 PRODUCTS_PREFIX = 'products'
 METADATA_FILENAME = 'product.json'
-IMAGE_FILENAME = 'image.jpg'
+IMAGE_BASENAME = 'image'
+
+# The picture types a product can carry, and the extension each is stored
+# under, so the key says what the object is.
+IMAGE_TYPES = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+}
 
 
-def build_image_key(product_id: str) -> str:
-    return f"{PRODUCTS_PREFIX}/{product_id}/{IMAGE_FILENAME}"
+def build_image_key(product_id: str, extension: str) -> str:
+    return f"{PRODUCTS_PREFIX}/{product_id}/{IMAGE_BASENAME}.{extension}"
 
 
 def build_metadata_key(product_id: str) -> str:
@@ -122,27 +134,33 @@ def create_product():
             'created_at': datetime.utcnow().isoformat()
         }
 
-        image_key = build_image_key(product_id)
+        # The picture arrives base64-encoded in image_data, with its type in
+        # image_content_type (JPEG if unset). Without one, a JSON placeholder
+        # stands in for it.
+        if data.get('image_data'):
+            content_type = data.get('image_content_type', 'image/jpeg')
+            if content_type not in IMAGE_TYPES:
+                return jsonify({'error': f'image_content_type must be one of {sorted(IMAGE_TYPES)}'}), 400
+            try:
+                image_body = base64.b64decode(data['image_data'], validate=True)
+            except (binascii.Error, ValueError):
+                return jsonify({'error': 'image_data must be base64'}), 400
+            image_key = build_image_key(product_id, IMAGE_TYPES[content_type])
+        else:
+            placeholder_data = {
+                'product_id': product_id,
+                'product_name': data['name'],
+                'note': 'Placeholder - no image uploaded',
+                'created_at': datetime.utcnow().isoformat()
+            }
+            image_body = json.dumps(placeholder_data).encode('utf-8')
+            content_type = 'application/json'
+            image_key = build_image_key(product_id, 'json')
 
-        # Handle image upload - create placeholder if no image provided
         try:
-            if data.get('image_data'):
-                # Upload provided image data (base64 or URL in real app)
-                image_body = data['image_data'].encode('utf-8')
-                content_type = 'image/jpeg'
-            else:
-                # Create a placeholder object to demonstrate storage integration
-                placeholder_data = {
-                    'product_id': product_id,
-                    'product_name': data['name'],
-                    'note': 'Placeholder - no image uploaded',
-                    'created_at': datetime.utcnow().isoformat()
-                }
-                image_body = json.dumps(placeholder_data).encode('utf-8')
-                content_type = 'application/json'
-
             store.put(image_key, image_body, content_type)
             product['image_key'] = image_key
+            product['image_content_type'] = content_type
         except StorageError as e:
             return jsonify({'error': f'Failed to upload image: {str(e)}'}), 500
 
@@ -216,7 +234,7 @@ def index():
             'GET /health': 'Health check',
             'GET /ready': 'Readiness check',
             'GET /products': 'List all products',
-            'POST /products': 'Create a product',
+            'POST /products': 'Create a product (picture: base64 image_data, image_content_type)',
             'GET /products/<id>': 'Get a specific product',
             'DELETE /products/<id>': 'Delete a product'
         },

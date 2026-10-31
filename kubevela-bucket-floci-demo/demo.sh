@@ -1,20 +1,24 @@
 #!/bin/bash
-# Bucket demo on a local k3d cluster: one Application, promoted through three
+# Bucket demo on a local k3d cluster: one Application, promoted through four
 # stages, each with a different bucket backing and the same properties:
-#   aws-cue     bucket-aws-cue     S3 in Floci, definitions written in CUE
-#   aws-devkit  bucket-aws-devkit  S3 in Floci, definitions written in Go (DevKit)
-#   gcp-devkit  bucket-gcp-devkit  Cloud Storage in floci-gcp, written in Go
-# Crossplane creates every bucket. The workflow tests the product-catalog API
-# at each stage and waits for approval before the next. VelaUX is forwarded
-# to localhost:8000 as soon as the first stage is deployed.
+#   aws-cue     bucket-aws-cue     S3 in Floci via Crossplane, definitions in CUE
+#   aws-devkit  bucket-aws-devkit  S3 in Floci via Crossplane, definitions in Go (DevKit)
+#   aws-ack     bucket-aws-ack     S3 in Floci via ACK, DevKit
+#   gcp-devkit  bucket-gcp-devkit  Cloud Storage in floci-gcp via Crossplane, DevKit
+# The workflow tests the product-catalog API at each stage and waits for
+# approval before the next. As soon as the first stage is deployed, VelaUX is
+# forwarded to localhost:8000 and the bucket browser, which shows every
+# stage's bucket on one page, to localhost:8081.
 #
-# Usage: ./demo.sh [--skip-cluster] [--skip-build] [--zscaler] [--auto-approve]
+# Usage: ./demo.sh [--skip-cluster] [--skip-build] [--zscaler] [--auto-approve] [--open]
 #   --skip-cluster  Use the current kubectl context instead of creating the k3d cluster
 #   --skip-build    Don't build and import the product-catalog image (already in the cluster)
 #   --zscaler       Trust a TLS-inspecting proxy's CA: REGISTRY_CA_BUNDLE, or
 #                   ~/zscaler/zscaler_root.crt. Mounted into the k3d nodes at
 #                   cluster creation and given to Crossplane and VelaUX.
 #   --auto-approve  Promote without asking. Without a terminal, demo.sh always does.
+#   --open          On macOS, open VelaUX and the bucket browser in the default
+#                   browser once they are forwarded.
 #
 # Needs: docker, k3d, kubectl, helm, go, and the vela CLI matching VELA_VERSION.
 # Tear down with ./clean.sh.
@@ -32,25 +36,31 @@ VELA_VERSION="v1.12.0-alpha.1"
 CROSSPLANE_VERSION="2.4.3"
 PROVIDER_AWS_VERSION="v1.23.2"
 PROVIDER_GCP_VERSION="v3.1.0"
+ACK_S3_VERSION="1.15.0"
+FLOCI_URL="http://floci.floci-system.svc.cluster.local:4566"
 CURL_IMAGE="curlimages/curl:8.22.0"
 VELAUX_ADMIN_PASSWORD="${VELAUX_ADMIN_PASSWORD:-VelaUX12345}"
 VELAUX_URL="http://velaux-server.vela-system:8000/api/v1"
 VELAUX_LOCAL_PORT="${VELAUX_LOCAL_PORT:-8000}"
-# clean.sh reads the pidfile too.
-VELAUX_FORWARD_LOG="${TMPDIR:-/tmp}/$CLUSTER_NAME-velaux-forward.log"
-VELAUX_FORWARD_PID="${TMPDIR:-/tmp}/$CLUSTER_NAME-velaux-forward.pid"
+BROWSER_LOCAL_PORT="${BROWSER_LOCAL_PORT:-8081}"
+# Each port-forward's pid and log go in <prefix>-<name>.pid and .log;
+# clean.sh stops the forwards through the pidfiles.
+FORWARD_PREFIX="${TMPDIR:-/tmp}/$CLUSTER_NAME-forward"
 APP="product-catalog"
-STAGES="aws-cue aws-devkit gcp-devkit"
+BROWSER="bucket-browser"
+STAGES="aws-cue aws-devkit aws-ack gcp-devkit"
 
 SKIP_CLUSTER=false
 SKIP_BUILD=false
 AUTO_APPROVE=false
+OPEN=false
 for arg in "$@"; do
     case "$arg" in
         --skip-cluster) SKIP_CLUSTER=true ;;
         --skip-build) SKIP_BUILD=true ;;
         --zscaler) REGISTRY_CA_BUNDLE="${REGISTRY_CA_BUNDLE:-$HOME/zscaler/zscaler_root.crt}" ;;
         --auto-approve) AUTO_APPROVE=true ;;
+        --open) OPEN=true ;;
         *) echo "Unknown option: $arg"; exit 1 ;;
     esac
 done
@@ -124,6 +134,13 @@ build_image() {
     fi
     docker build -t product-catalog:latest app
     k3d image import product-catalog:latest -c "$cluster"
+    # On a rerun, pods already running the image keep the old build (the tag
+    # doesn't change) until they restart: every stage's API and the browser.
+    local ns name
+    kubectl get deploy -A -o jsonpath='{range .items[?(@.spec.template.spec.containers[0].image=="product-catalog:latest")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' |
+        while read -r ns name; do
+            kubectl -n "$ns" rollout restart "deploy/$name"
+        done
 }
 
 install_kubevela() {
@@ -241,6 +258,25 @@ connect_floci() {
     kubectl apply -f floci/providerconfigs.yaml
 }
 
+# ACK's S3 controller, pointed at Floci for S3 and for the STS call it makes
+# at startup. Floci serves plain HTTP and no <bucket>.<host> virtual hosts,
+# hence the unsafe-URL and path-style settings. Floci accepts any keys.
+install_ack() {
+    step "Installing the ACK S3 controller $ACK_S3_VERSION"
+    kubectl create namespace ack-system --dry-run=client -o yaml | kubectl apply -f -
+    kubectl -n ack-system create secret generic floci-credentials \
+        --from-literal=credentials="$(printf '[default]\naws_access_key_id = test\naws_secret_access_key = test\n')" \
+        --dry-run=client -o yaml | kubectl apply -f -
+    helm upgrade --install ack-s3 oci://public.ecr.aws/aws-controllers-k8s/s3-chart \
+        --version "$ACK_S3_VERSION" --namespace ack-system --wait --timeout 10m \
+        --set aws.region=us-west-2 \
+        --set aws.endpoint_url="$FLOCI_URL" \
+        --set aws.identity_endpoint_url="$FLOCI_URL" \
+        --set aws.allow_unsafe_aws_endpoint_urls=true \
+        --set aws.endpoint_use_path_style=true \
+        --set aws.credentials.secretName=floci-credentials
+}
+
 # Both the CUE and the DevKit definitions go in: the aws-cue stage uses the
 # CUE ones, the later stages the DevKit ones.
 apply_definitions() {
@@ -251,8 +287,9 @@ apply_definitions() {
 }
 
 deploy_app() {
-    step "Deploying $APP"
+    step "Deploying $APP and the $BROWSER"
     vela up -f "apps/$APP.yaml"
+    vela up -f "apps/$BROWSER.yaml"
 }
 
 # Prints a workflow step's phase, or nothing before the step starts.
@@ -278,29 +315,57 @@ wait_for_step() {
     exit 1
 }
 
-# Forwards VelaUX in the background, so it can be watched while the promotion
-# runs. The forward outlives demo.sh; ./clean.sh stops it.
-forward_velaux() {
-    local pid
-    pid="$(cat "$VELAUX_FORWARD_PID" 2>/dev/null || true)"
+# Forwards a service in the background, so it can be watched while the
+# promotion runs. The forward outlives demo.sh; ./clean.sh stops it.
+# With --open, opens the page in the default browser too.
+# Usage: forward <name> <namespace> <service> <local-port> <service-port> <url> [note]
+forward() {
+    local name="$1" ns="$2" svc="$3" port="$4" target="$5" url="$6" msg="$6${7:+, $7}" pid
+    local log="$FORWARD_PREFIX-$name.log" pidfile="$FORWARD_PREFIX-$name.pid"
+    pid="$(cat "$pidfile" 2>/dev/null || true)"
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-        echo "VelaUX is already forwarded: http://localhost:$VELAUX_LOCAL_PORT"
+        echo "$name is already forwarded: $msg"
+        open_page "$url"
         return
     fi
-    kubectl port-forward -n vela-system svc/velaux-server "$VELAUX_LOCAL_PORT:8000" >"$VELAUX_FORWARD_LOG" 2>&1 &
+    kubectl port-forward -n "$ns" "svc/$svc" "$port:$target" >"$log" 2>&1 &
     pid=$!
-    echo "$pid" >"$VELAUX_FORWARD_PID"
+    echo "$pid" >"$pidfile"
     for _ in $(seq 20); do
-        if grep -q Forwarding "$VELAUX_FORWARD_LOG"; then
-            echo "✓ VelaUX: http://localhost:$VELAUX_LOCAL_PORT, user admin, password $VELAUX_ADMIN_PASSWORD"
+        if grep -q Forwarding "$log"; then
+            echo "✓ $name: $msg"
+            open_page "$url"
             return
         fi
         kill -0 "$pid" 2>/dev/null || break
         sleep 0.5
     done
-    # Not fatal: the demo runs without VelaUX.
-    echo "⚠ Couldn't forward VelaUX to port $VELAUX_LOCAL_PORT (set VELAUX_LOCAL_PORT for another):"
-    cat "$VELAUX_FORWARD_LOG"
+    # Not fatal: the demo runs without it.
+    echo "⚠ Couldn't forward $name to port $port (VELAUX_LOCAL_PORT and BROWSER_LOCAL_PORT pick others):"
+    cat "$log"
+}
+
+# Only macOS: on Linux `open` can be another program (openvt).
+open_page() {
+    [ "$OPEN" = true ] || return 0
+    if [ "$(uname)" = Darwin ]; then
+        open "$1"
+    else
+        echo "  --open only works on macOS; open $1 yourself"
+    fi
+}
+
+forward_velaux() {
+    forward velaux vela-system velaux-server "$VELAUX_LOCAL_PORT" 8000 \
+        "http://localhost:$VELAUX_LOCAL_PORT" "user admin, password $VELAUX_ADMIN_PASSWORD"
+}
+
+# The browser's Application was applied with the product-catalog one; by the
+# time the first stage is deployed it is usually running.
+forward_browser() {
+    kubectl wait --for=jsonpath='{.status.status}'=running "application/$BROWSER" --timeout=300s
+    kubectl rollout status "deploy/$BROWSER" --timeout=300s
+    forward "$BROWSER" default "$BROWSER" "$BROWSER_LOCAL_PORT" 8080 "http://localhost:$BROWSER_LOCAL_PORT"
 }
 
 # Resumes the workflow at stage $2's approval, asking first unless
@@ -319,16 +384,22 @@ approve() {
     vela workflow resume "$APP" || true
 }
 
+# Once the stage's test passes, gives its bucket a product with the stage's
+# mug (sample/mug-<name>.svg: KubeVela, Guidewire, AWS, then Google Cloud), so
+# the bucket browser has a picture to show.
 check_stage() {
     step "Stage $1"
     wait_for_step "test-$1" succeeded
     echo "✓ $1: bucket product-images-$1 exists and the API stored a product in it"
+    ./show-buckets.sh --create "$1" | grep -E '^(Created|Already has)' ||
+        echo "⚠ Couldn't add the sample picture to $1; try ./show-buckets.sh --create $1"
 }
 
 promote() {
     local first="${STAGES%% *}" stage prev
     wait_for_step "deploy-$first" succeeded
     forward_velaux
+    forward_browser
     check_stage "$first"
     prev="$first"
     for stage in ${STAGES#* }; do
@@ -344,7 +415,10 @@ summary() {
     echo ""
     kubectl get buckets.s3.aws.upbound.io,buckets.storage.gcp.upbound.io
     echo ""
+    kubectl get buckets.s3.services.k8s.aws -A
+    echo ""
     echo "VelaUX: http://localhost:$VELAUX_LOCAL_PORT, user admin, password $VELAUX_ADMIN_PASSWORD"
+    echo "Bucket browser: http://localhost:$BROWSER_LOCAL_PORT"
 }
 
 check_tools
@@ -360,6 +434,7 @@ install_kubevela
 install_velaux
 install_crossplane
 connect_floci
+install_ack
 apply_definitions
 deploy_app
 promote

@@ -1,10 +1,13 @@
-# One Application, promoted through three stages. Each stage is a namespace
-# with a different bucket backing; only the definition types change:
+# One Application, promoted through four stages. Each stage is a namespace
+# with a different bucket backing; only the definition types change, one
+# thing at a time:
 #
-#   aws-cue     bucket-aws-cue     + high-availability         S3 in Floci, CUE
-#   aws-devkit  bucket-aws-devkit  + high-availability-devkit  S3 in Floci, DevKit (Go)
-#   gcp-devkit  bucket-gcp-devkit  + high-availability-devkit  Cloud Storage in floci-gcp, DevKit
+#   aws-cue     bucket-aws-cue     + high-availability         S3 via Crossplane, CUE
+#   aws-devkit  bucket-aws-devkit  + high-availability-devkit  S3 via Crossplane, DevKit (Go)
+#   aws-ack     bucket-aws-ack     + high-availability-devkit  S3 via ACK, DevKit
+#   gcp-devkit  bucket-gcp-devkit  + high-availability-devkit  Cloud Storage via Crossplane, DevKit
 #
+# S3 is Floci and Cloud Storage is floci-gcp.
 # The CUE definitions are in ../definitions/, the DevKit ones in ../devkit/.
 # The workflow deploys a stage, creates a product through the API to prove
 # the app can write to its bucket, then waits for approval before the next.
@@ -24,7 +27,6 @@ spec:
       properties:
         name: product-images
         region: us-west-2
-        versioning: true
         projectName: kubecon-na-2026
 
     - name: product-catalog-api
@@ -75,6 +77,11 @@ spec:
       properties:
         clusters: ["local"]
         namespace: aws-devkit
+    - name: topology-aws-ack
+      type: topology
+      properties:
+        clusters: ["local"]
+        namespace: aws-ack
     - name: topology-gcp-devkit
       type: topology
       properties:
@@ -107,7 +114,6 @@ spec:
             properties:
               name: product-images
               region: us-west-2
-              versioning: true
               projectName: kubecon-na-2026
           - name: product-catalog-api
             traits:
@@ -115,6 +121,26 @@ spec:
                 properties:
                   env:
                     BUCKET_NAME: product-images-aws-devkit
+              - type: high-availability-devkit
+                properties:
+                  level: staging
+
+    - name: override-aws-ack
+      type: override
+      properties:
+        components:
+          - name: product-images
+            type: bucket-aws-ack
+            properties:
+              name: product-images
+              region: us-west-2
+              projectName: kubecon-na-2026
+          - name: product-catalog-api
+            traits:
+              - type: env
+                properties:
+                  env:
+                    BUCKET_NAME: product-images-aws-ack
               - type: high-availability-devkit
                 properties:
                   level: staging
@@ -128,7 +154,6 @@ spec:
             properties:
               name: product-images
               region: us-west-2
-              versioning: true
               projectName: kubecon-na-2026
           - name: product-catalog-api
             traits:
@@ -170,6 +195,22 @@ spec:
         properties:
           method: POST
           url: http://product-catalog-api.aws-devkit.svc.cluster.local:8080/products
+          body:
+            name: promotion-check
+            price: 1
+          timeout: 10s
+
+      - name: approve-aws-ack
+        type: suspend
+      - name: deploy-aws-ack
+        type: deploy
+        properties:
+          policies: ["topology-aws-ack", "override-aws-ack"]
+      - name: test-aws-ack
+        type: request
+        properties:
+          method: POST
+          url: http://product-catalog-api.aws-ack.svc.cluster.local:8080/products
           body:
             name: promotion-check
             price: 1

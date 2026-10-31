@@ -6,8 +6,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code (the API + the cloud-neutral storage abstraction)
-COPY app.py storage.py ./
+# Copy application code: the API, the bucket browser (run with
+# `python browser.py`) and the cloud-neutral storage abstraction they share
+COPY app.py browser.py storage.py ./
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && \

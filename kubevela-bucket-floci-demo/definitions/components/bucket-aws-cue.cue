@@ -1,7 +1,7 @@
 // An S3 bucket, created by Crossplane's provider-aws-s3 in Floci.
 //
 // One of three bucket components that take the same parameters (name,
-// region, versioning, projectName). The others, bucket-aws-devkit and
+// region, projectName). The others, bucket-aws-devkit and
 // bucket-gcp-devkit, are written in Go with DevKit in
 // ../../devkit/components/. An Application changes backing by changing only
 // the component type.
@@ -69,31 +69,11 @@ template: {
 		}
 	}
 
-	outputs: {
-		if parameter.versioning {
-			versioning: {
-				apiVersion: "s3.aws.upbound.io/v1beta2"
-				kind:       "BucketVersioning"
-				metadata: name: _bucket
-				spec: {
-					forProvider: {
-						region: parameter.region
-						bucketRef: name: _bucket
-						versioningConfiguration: status: "Enabled"
-					}
-					providerConfigRef: name: "default"
-				}
-			}
-		}
-	}
-
 	parameter: {
 		// +usage=Bucket name; the deploy namespace is appended
 		name: string
 		// +usage=AWS region. bucket-gcp-devkit maps it to the nearest GCS location
 		region: *"us-west-2" | "us-east-1" | "eu-west-1" | "eu-central-1" | "ap-south-1"
-		// +usage=Keep every version of each object
-		versioning: *false | bool
 		// +usage=Project the bucket belongs to, set as the app.kubernetes.io/part-of label
 		projectName: *"kubecon-na-2026" | string
 	}

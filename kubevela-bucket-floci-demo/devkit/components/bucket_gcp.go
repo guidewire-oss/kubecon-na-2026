@@ -15,13 +15,12 @@ func BucketGCP() *defkit.ComponentDefinition {
 		Workload("storage.gcp.upbound.io/v1beta3", "Bucket").
 		Params(p.all()...).
 		Template(p.renderGCP).
-		HealthPolicyExpr(defkit.Health().Condition("Ready").IsTrue()).
-		CustomStatus(bucketStatus)
+		HealthPolicy(bucketHealth(crossplaneReady)).
+		CustomStatus(bucketStatus(crossplaneReady))
 }
 
 func (p bucketParams) renderGCP(tpl *defkit.Template) {
-	bucket := p.newBucketResource("storage.gcp.upbound.io/v1beta3", "Bucket").
-		Set("spec.forProvider.versioning.enabled", p.versioning)
+	bucket := p.newBucketResource("storage.gcp.upbound.io/v1beta3", "Bucket")
 	for _, region := range Regions {
 		bucket.SetIf(p.region.Eq(region), "spec.forProvider.location", defkit.Lit(gcsLocations[region]))
 	}

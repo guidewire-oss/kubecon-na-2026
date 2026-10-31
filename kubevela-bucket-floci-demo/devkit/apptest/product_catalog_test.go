@@ -1,6 +1,6 @@
-// Package appcheck checks ../../apps/product-catalog.yaml, the demo's one
+// Package apptest checks ../../apps/product-catalog.yaml, the demo's one
 // Application, against the definitions its stages use, CUE and DevKit.
-package appcheck
+package apptest
 
 import (
 	"encoding/json"
@@ -28,13 +28,15 @@ func definitions(t *testing.T) map[string]cuetest.Definition {
 		"high-availability":         cuetest.ReadDefinition(t, "traits/high-availability.cue"),
 		components.BucketAWSType:    components.BucketAWS(),
 		components.BucketGCPType:    components.BucketGCP(),
+		components.BucketACKType:    components.BucketACK(),
 		traits.HighAvailabilityType: traits.HighAvailability(),
 	}
 }
 
-func readApp(t *testing.T) *v1beta1.Application {
+// readApp reads ../../apps/<name>.yaml.
+func readApp(t *testing.T, name string) *v1beta1.Application {
 	t.Helper()
-	src, err := os.ReadFile("../../apps/product-catalog.yaml")
+	src, err := os.ReadFile("../../apps/" + name + ".yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +109,7 @@ func TestStagesMatchDefinitions(t *testing.T) {
 		}
 	}
 
-	app := readApp(t)
+	app := readApp(t, "product-catalog")
 	for _, ws := range app.Spec.Workflow.Steps {
 		if ws.Type != "deploy" {
 			continue
@@ -119,7 +121,7 @@ func TestStagesMatchDefinitions(t *testing.T) {
 			}
 		}
 	}
-	for _, typ := range []string{components.BucketAWSType, components.BucketGCPType, traits.HighAvailabilityType} {
+	for _, typ := range []string{components.BucketAWSType, components.BucketGCPType, components.BucketACKType, traits.HighAvailabilityType} {
 		if !used[typ] {
 			t.Errorf("no stage uses %s", typ)
 		}
