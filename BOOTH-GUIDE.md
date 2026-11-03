@@ -5,26 +5,55 @@ For whoever is standing at the booth. Modeled on the India team's
 a pitch, one demo loop and answers to the usual questions.
 
 The demo is `kubevela-bucket-floci-demo/`. The slides are the deck "One
-Interface To Rule Them All".
+Interface To Rule Them All". They cover two personas: the developer and the
+platform engineer.
 
 ## The message
 
-Said from the developer's side: I write one `application.yaml` that declares my app, its traits and its bucket. I deploy it, and the same properties go to every stage, so there's nothing to edit. My app code stays as it is too, because the platform provides the abstraction.
+One interface, two people.
 
-That single interface frees us from two choices. Crossplane or ACK can build the bucket, and AWS S3 or GCP GCS can hold it. The developer's file is the same either way.
+**The developer** writes one `application.yaml` that declares the app, its traits and its bucket. They deploy it, and the same properties go to every stage, so there's nothing to edit. Their app code stays as it is too, because the platform provides the abstraction.
+
+**The platform engineer** writes the components behind that file, in CUE or in Go with DevKit. Go is the new option: it's a language many engineers already know, with the tooling and tests they're used to. Either way the component renders the same resources.
+
+Because of that one interface, nobody downstream notices what changes underneath. Crossplane or ACK can build the bucket, and AWS S3 or GCP GCS can hold it. The platform engineer picks, and the developer's file is the same either way.
+
+## The platform engineer's side
+
+The developer is one persona at the booth. The other is the platform engineer,
+who writes the components behind the developer's file. A KubeVela component can
+be written two ways:
+
+- **In CUE**, as KubeVela definitions always were. `aws-cue` uses this, in `definitions/components/bucket-aws-cue.cue`.
+- **In Go, with DevKit**, which is new in KubeVela. `aws-devkit`, `aws-ack` and `gcp-devkit` use this, in `devkit/components/`.
+
+Why Go? A lot of engineers know Go better than CUE, and Go comes with an
+ecosystem they already understand: modules, IDE support, linters and libraries.
+That helps with writing the component and with writing its tests.
+
+The tests are the part to show off. `cd devkit && go test ./...` runs without a
+cluster. It renders the Go component and the CUE one and checks they produce the
+same resources, and it checks every stage of `apps/product-catalog.yaml` against
+its definitions. That is why moving from `aws-cue` to `aws-devkit` changes
+nothing for the developer.
+
+To show it: open `devkit/components/bucket_ack.go` next to the bucket browser
+and point at the five lines that define the component.
 
 ## The 30-second pitch
 
-> One Application, four stages. Every stage gets its bucket from something
-> different: Crossplane, ACK, even a different cloud. Look at the developer's
-> file: the properties are the same every time. Approve the next stage here
-> and watch its bucket appear on the right.
+> There are two people in this demo. The developer writes one file, and it
+> never changes. The platform engineer writes the components behind it, in
+> CUE or in Go with DevKit. Go is new, and it means they can use the tools and
+> tests they already know. Watch the bucket browser: approve the next stage
+> and the platform engineer swaps Crossplane for ACK, then AWS for GCP. The
+> developer's file stays exactly the same.
 
 ## Before the doors open
 
 1. Docker running, one demo cluster only (see Troubleshooting).
-2. `cd kubevela-bucket-floci-demo && ./demo.sh --open` (add `--zscaler` behind Zscaler, after `./clean.sh`).
-3. Check both windows are up, side by side:
+2. `cd kubevela-bucket-floci-demo && ./demo.sh --open` (add `--zscaler` behind Zscaler, after `./clean.sh`). The `--open` option opens two browser windows for you, VelaUX and the bucket browser. It works on macOS only; elsewhere, open the two URLs below yourself.
+3. Put the two windows side by side, so a visitor sees the approval and the bucket appear together:
    - VelaUX: http://localhost:8000 (`admin` / `VelaUX12345`, or `VELAUX_ADMIN_PASSWORD`)
    - Bucket browser: http://localhost:8081
 4. `vela status product-catalog` should show the first stage, `aws-cue`, healthy.
@@ -38,7 +67,7 @@ Run it once per visitor group. Each step names the thing to point at.
 |---|---|---|---|
 | 1 | Show `apps/product-catalog.yaml` | "This is the developer's whole input. Three bucket properties." | `name`, `region`, `projectName` |
 | 2 | Look at the bucket browser | "Stage one is live: S3 via Crossplane, written in CUE." | The `aws-cue` card, with its mug |
-| 3 | Approve the next stage in VelaUX (or `vela workflow resume product-catalog`) | "Same properties. The platform now writes its definitions in Go, with DevKit." | `DevKit` in red on the `aws-devkit` card |
+| 3 | Approve the next stage in VelaUX (or `vela workflow resume product-catalog`) | "Same properties. The platform engineer now writes the component in Go, with DevKit, instead of CUE." | `DevKit` in red on the `aws-devkit` card |
 | 4 | Approve again | "Same bucket, but ACK builds it instead of Crossplane." | `ACK` in red on the `aws-ack` card |
 | 5 | Approve again | "Now a different cloud: GCP Cloud Storage. Still the same properties." | `GCP GCS` in red on the `gcp-devkit` card |
 | 6 | Say it | "Four backings. One file. Nothing the developer wrote changed." | The four cards together |
@@ -71,8 +100,14 @@ or Cloud Storage.
 
 **Why CUE and DevKit?**
 They are two ways for the platform team to write the same definitions. DevKit
-lets them write Go with tests and an IDE. A Go test checks the DevKit
-definitions against the CUE ones, so they stay equivalent.
+is new, and it exists because many engineers are more at home in Go. They get
+the Go ecosystem (IDE, modules, linters) for the component and for its tests.
+A Go test checks the DevKit definitions against the CUE ones, so they stay
+equivalent.
+
+**Do I have to learn Go to write a component?**
+No. CUE still works, and both forms render the same resources. DevKit is there
+for teams that would rather write Go.
 
 **Why Crossplane and ACK?**
 Both are IaC controllers for Kubernetes. The point is that you can swap one
