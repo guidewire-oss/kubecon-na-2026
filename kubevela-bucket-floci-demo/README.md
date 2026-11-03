@@ -59,9 +59,7 @@ kubectl get pods -n aws-cue                   # likewise aws-devkit, aws-ack and
 kubectl port-forward -n gcp-devkit svc/product-catalog-api 8080:8080   # then curl localhost:8080/products
 ```
 
-`./show-buckets.sh` shows, for each stage, the products its API returns and every object in its bucket. Name stages to show only those: `./show-buckets.sh aws-ack gcp-devkit`. It runs the query inside each stage's API pod, so it needs nothing but `kubectl`.
-
-`./show-buckets.sh --create` first adds a product with a picture to each deployed stage, through its API: the stage's mug, or a picture you name for all of them (`--create ~/Pictures/cup.jpg`; .jpg, .png, .gif, .webp or .svg). A stage that already has a product of that name is left alone, so `demo.sh`, which adds the mug to each stage as it goes live, can run again without piling up mugs.
+`./seed-products.sh [stage...]` gives each deployed stage's bucket a product with the stage's mug (`sample/mug-<logo>.*`), through its API. A stage that already has that product is left alone, so `demo.sh`, which seeds each stage as it goes live, can run again without piling up mugs. It runs inside each stage's API pod, so it needs nothing but `kubectl`. The bucket browser shows the result.
 
 ## The bucket browser
 
@@ -86,7 +84,7 @@ Crossplane's GCP ProviderConfig has no endpoint field. The provider runs the Ter
 | Path | What it is |
 |---|---|
 | `demo.sh`, `clean.sh` | Bring the demo up and tear it down |
-| `show-buckets.sh` | Show each stage's products and bucket contents; `--create` adds a product with a picture |
+| `seed-products.sh` | Add the stage's mug as a product to each deployed stage |
 | `apps/bucket-browser.yaml` | The bucket browser's Application |
 | `sample/` | The stages' mugs (KubeVela, Guidewire, AWS, Google Cloud), and `mug.svg` for any other stage |
 | `floci/` | Floci and floci-gcp, and the Crossplane ProviderConfigs pointing at them |

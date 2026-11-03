@@ -24,7 +24,8 @@ spec:
   components:
     - name: product-images
       type: bucket-aws-cue
-      properties:
+      # Anchored so the overrides below can reuse it.
+      properties: &bucket-properties
         name: product-images
         region: us-west-2
         projectName: kubecon-na-2026
@@ -104,17 +105,15 @@ spec:
                 properties:
                   level: dev
 
-    # A different type replaces the component, so the properties are repeated.
+    # A different type replaces the whole component, so each override passes
+    # the bucket properties again, through the YAML anchor above.
     - name: override-aws-devkit
       type: override
       properties:
         components:
           - name: product-images
             type: bucket-aws-devkit
-            properties:
-              name: product-images
-              region: us-west-2
-              projectName: kubecon-na-2026
+            properties: *bucket-properties
           - name: product-catalog-api
             traits:
               - type: env
@@ -131,10 +130,7 @@ spec:
         components:
           - name: product-images
             type: bucket-aws-ack
-            properties:
-              name: product-images
-              region: us-west-2
-              projectName: kubecon-na-2026
+            properties: *bucket-properties
           - name: product-catalog-api
             traits:
               - type: env
@@ -151,10 +147,7 @@ spec:
         components:
           - name: product-images
             type: bucket-gcp-devkit
-            properties:
-              name: product-images
-              region: us-west-2
-              projectName: kubecon-na-2026
+            properties: *bucket-properties
           - name: product-catalog-api
             traits:
               - type: env

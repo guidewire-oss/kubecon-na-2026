@@ -10,6 +10,6 @@
 - ACK's S3 controller reads ~20 bucket settings per reconcile and fails on any error; Floci 2.3.0 serves all but `GetBucketAbac`, which falls through harmlessly. Re-check before bumping Floci (README "How ACK reaches Floci")
 - ACK can't delete a non-empty bucket and has no forceDestroy; `clean.sh --apps-only` empties the `aws-ack` bucket through the API pod first
 - Adding or renaming a stage means updating `apps/bucket-browser.yaml`'s `BUCKETS` too (the bucket browser, `app/browser.py`); `apptest` fails until they match
-- The API stores pictures base64-decoded from `image_data`; `./show-buckets.sh --create [picture]` posts one to every stage
+- The API stores pictures base64-decoded from `image_data`; `./seed-products.sh [stage...]` posts each stage's mug
 - defkit 1.12 quirks are in `kubevela-bucket-floci-demo/devkit/README.md`
 - Dev containers can't run k3d; use `./demo.sh --skip-cluster --skip-build` against an existing context that already has `product-catalog:latest`

@@ -12,7 +12,7 @@ import json
 import uuid
 import base64
 import binascii
-from datetime import datetime
+from datetime import UTC, datetime
 from flask import Flask, request, jsonify
 
 from storage import build_object_store, StorageError
@@ -66,7 +66,7 @@ def health_check():
     """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': datetime.now(UTC).isoformat(),
         'service': 'product-catalog-api'
     }), 200
 
@@ -77,7 +77,7 @@ def readiness_check():
     if store.bucket_exists():
         return jsonify({
             'status': 'ready',
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(UTC).isoformat(),
             'provider': store.provider,
             'bucket': store.bucket
         }), 200
@@ -131,7 +131,7 @@ def create_product():
             'name': data['name'],
             'description': data.get('description', ''),
             'price': data.get('price', 0.0),
-            'created_at': datetime.utcnow().isoformat()
+            'created_at': datetime.now(UTC).isoformat()
         }
 
         # The picture arrives base64-encoded in image_data, with its type in
@@ -151,7 +151,7 @@ def create_product():
                 'product_id': product_id,
                 'product_name': data['name'],
                 'note': 'Placeholder - no image uploaded',
-                'created_at': datetime.utcnow().isoformat()
+                'created_at': datetime.now(UTC).isoformat()
             }
             image_body = json.dumps(placeholder_data).encode('utf-8')
             content_type = 'application/json'

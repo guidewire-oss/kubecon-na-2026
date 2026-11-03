@@ -391,8 +391,8 @@ check_stage() {
     step "Stage $1"
     wait_for_step "test-$1" succeeded
     echo "✓ $1: bucket product-images-$1 exists and the API stored a product in it"
-    ./show-buckets.sh --create "$1" | grep -E '^(Created|Already has)' ||
-        echo "⚠ Couldn't add the sample picture to $1; try ./show-buckets.sh --create $1"
+    ./seed-products.sh "$1" | grep -E '^(Created|Already has)' ||
+        echo "⚠ Couldn't add the sample picture to $1; try ./seed-products.sh $1"
 }
 
 promote() {

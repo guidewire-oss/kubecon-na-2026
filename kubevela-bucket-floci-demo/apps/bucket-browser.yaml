@@ -41,12 +41,14 @@ spec:
           properties:
             env:
               PORT: "8080"
-              # One entry per stage: stage|provider|bucket|label
+              # One entry per stage: stage|provider|bucket|label. The
+              # card shows the label as its heading; *word* in a label shows in
+              # red, marking what changed from the stage before.
               BUCKETS: >-
-                aws-cue|aws|product-images-aws-cue|S3 via Crossplane, CUE;
-                aws-devkit|aws|product-images-aws-devkit|S3 via Crossplane, DevKit;
-                aws-ack|aws|product-images-aws-ack|S3 via ACK, DevKit;
-                gcp-devkit|gcp|product-images-gcp-devkit|Cloud Storage via Crossplane, DevKit
+                aws-cue|aws|product-images-aws-cue|AWS S3 via Crossplane, CUE;
+                aws-devkit|aws|product-images-aws-devkit|AWS S3 via Crossplane, *DevKit*;
+                aws-ack|aws|product-images-aws-ack|AWS S3 via *ACK*, DevKit;
+                gcp-devkit|gcp|product-images-gcp-devkit|*GCP GCS* via *Crossplane*, DevKit
               AWS_REGION: us-west-2
               AWS_ENDPOINT_URL: http://floci.floci-system.svc.cluster.local:4566
               AWS_ACCESS_KEY_ID: test

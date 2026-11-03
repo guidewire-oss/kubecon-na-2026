@@ -6,24 +6,31 @@ Adapted from kubevela-one-interface-demos/apps/bucket-browser, which browses one
 bucket. This one reads BUCKETS, one entry per stage separated by ';', each
 'stage|provider|bucket|label':
 
-    BUCKETS="aws-cue|aws|product-images-aws-cue|Crossplane, CUE;..."
+    BUCKETS="aws-cue|aws|product-images-aws-cue|AWS S3 via Crossplane, CUE;..."
 
-and shows, for each stage, the products the product-catalog API stored in its
-bucket, with their pictures, then the bucket's raw objects. It uses the API's
-storage.py, so S3 in Floci and Cloud Storage in floci-gcp need no extra code.
+and shows, for each stage, the pictures of the products the product-catalog
+API stored in its bucket, then the bucket's raw objects. *word* in a label
+shows in red. It uses the API's storage.py, so S3 in Floci and Cloud Storage in floci-gcp need no extra code.
 It only reads.
 """
 import json
 import mimetypes
 import os
+import re
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from flask import Flask, Response, abort, render_template_string
+from markupsafe import Markup, escape
 
 from storage import GcsObjectStore, S3ObjectStore
 
 app = Flask(__name__)
 
 STORES = {'aws': S3ObjectStore, 'gcp': GcsObjectStore}
+
+# Product times show in Salt Lake City's zone.
+LOCAL_ZONE = ZoneInfo('America/Denver')
 
 # Objects are served from a bucket the API's callers write to, so they may not
 # run scripts or fetch anything; pictures render through <img> only. data:
@@ -46,13 +53,31 @@ def parse_buckets(spec):
     return stages
 
 
+@app.template_filter()
+def emphasize(text):
+    """Escapes text, then shows each *word* in bold."""
+    return Markup(re.sub(r'\*([^*]+)\*', r'<span class="changed">\1</span>', str(escape(text))))
+
+
+@app.template_filter()
+def short_time(iso):
+    """An API timestamp, UTC unless it says otherwise, as MM-DD-YY HH:MM:SS local."""
+    try:
+        when = datetime.fromisoformat(iso)
+    except (TypeError, ValueError):
+        return iso
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return when.astimezone(LOCAL_ZONE).strftime('%m-%d-%y %H:%M:%S')
+
+
 STAGES = parse_buckets(os.environ.get('BUCKETS', ''))
 BY_NAME = {s['stage']: s for s in STAGES}
 
 
 def stage_view(stage):
     """What one card shows: the state of the bucket, its products and objects."""
-    view = {k: stage[k] for k in ('stage', 'provider', 'bucket', 'label')}
+    view = {k: stage[k] for k in ('stage', 'label')}
     view.update(state='ok', products=[], objects=[], error=None)
     store = stage['store']
     # One broken bucket must not take the page down, so catch everything.
@@ -92,14 +117,12 @@ PAGE = """<!doctype html>
   .sub { color: var(--muted); margin: 0 0 16px; }
   .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
-  .card h2 { font-size: 16px; margin: 0; }
-  .label { color: var(--muted); margin: 2px 0 8px; }
-  .bucket { font-family: ui-monospace, monospace; font-size: 13px; overflow-wrap: anywhere; }
+  .card h2 { font-size: 16px; margin: 0 0 8px; }
+  .changed { color: var(--err); }
   .state-ok { color: var(--ok); } .state-missing { color: var(--warn); } .state-error { color: var(--err); }
   .product { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
-  .product img, .nopic { width: 88px; height: 88px; object-fit: contain; border-radius: 6px;
-                         background: var(--bg); flex: none; }
-  .nopic { display: grid; place-items: center; color: var(--muted); font-size: 11px; text-align: center; }
+  .product img { width: 88px; height: 88px; object-fit: contain; border-radius: 6px;
+                 background: var(--bg); flex: none; }
   .meta { color: var(--muted); font-size: 13px; }
   details { margin-top: 8px; } summary { cursor: pointer; color: var(--muted); }
   ul { padding-left: 18px; margin: 6px 0 0; font-family: ui-monospace, monospace; font-size: 12px; }
@@ -108,29 +131,23 @@ PAGE = """<!doctype html>
 </head>
 <body>
 <h1>Bucket Browser</h1>
-<p class="sub">The product-catalog bucket of each stage. Refreshes every 5 seconds.</p>
+<p class="sub">The product-catalog bucket of each stage, with its products' pictures. Refreshes every 5 seconds.</p>
 <div class="grid">
 {% for v in views %}
   <section class="card">
-    <h2>{{ v.stage }}</h2>
-    <p class="label">{{ v.label }}</p>
-    <div class="bucket">{{ v.provider }} · {{ v.bucket }}</div>
+    <h2>{{ v.label|emphasize }}</h2>
     {% if v.state == 'missing' %}
       <p class="state-missing">Bucket not created yet</p>
     {% elif v.state == 'error' %}
       <p class="state-error">Can't read the bucket: {{ v.error }}</p>
     {% else %}
       <p class="state-ok">{{ v.products|length }} product(s), {{ v.objects|length }} object(s)</p>
-      {% for p in v.products %}
+      {% for p in v.products if p.has_picture %}
         <div class="product">
-          {% if p.has_picture %}
-            <img src="{{ url_for('view_object', stage=v.stage, key=p.image_key) }}" alt="{{ p.name }}">
-          {% else %}
-            <div class="nopic">no picture</div>
-          {% endif %}
+          <img src="{{ url_for('view_object', stage=v.stage, key=p.image_key) }}" alt="{{ p.name }}">
           <div>
             <div>{{ p.name }}</div>
-            <div class="meta">price {{ p.price }} · {{ p.created_at }}</div>
+            <div class="meta">price {{ p.price }} · {{ p.created_at|short_time }}</div>
           </div>
         </div>
       {% endfor %}
