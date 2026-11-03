@@ -16,7 +16,7 @@
 	description: "Auto-inject HA best practices (HPA, PDB, topology spread, anti-affinity) by environment level. The HPA scales on CPU, so the workload needs a CPU request."
 	attributes: {
 		appliesToWorkloads: ["deployments.apps", "statefulsets.apps"]
-		podDisruptive: false
+		podDisruptive: true
 	}
 }
 
@@ -34,14 +34,14 @@ template: {
 		}
 		staging: {
 			hpa: {enabled: true, min:  1, max: 3, cpuUtil: 70}
-			pdb: {enabled: true, minAvailable: "50%"}
+			pdb: {enabled: true, maxUnavailable: 1}
 			topologySpread: {enabled: false}
 			antiAffinity: {enabled: true, type: "preferred", weight: 100}
 		}
 		prod: {
 			hpa: {enabled: true, min:  3, max: 6, cpuUtil: 70}
 			pdb: {enabled: true, maxUnavailable: 2}
-			topologySpread: {enabled: true, maxSkew: 1, zoneCount: 3}
+			topologySpread: {enabled: true, maxSkew: 1}
 			antiAffinity: {enabled: true, type: "required"}
 		}
 		// For single-node / no-zone local clusters: prod posture without
@@ -108,9 +108,6 @@ template: {
 				spec: {
 					selector: matchLabels: {
 						"app.oam.dev/component": context.name
-					}
-					if _selectedConfig.pdb.minAvailable != _|_ {
-						minAvailable: _selectedConfig.pdb.minAvailable
 					}
 					if _selectedConfig.pdb.maxUnavailable != _|_ {
 						maxUnavailable: _selectedConfig.pdb.maxUnavailable

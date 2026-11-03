@@ -11,5 +11,7 @@
 - ACK can't delete a non-empty bucket and has no forceDestroy; `clean.sh --apps-only` empties the `aws-ack` bucket through the API pod first
 - Adding or renaming a stage means updating `apps/bucket-browser.yaml`'s `BUCKETS` too (the bucket browser, `app/browser.py`); `apptest` fails until they match
 - The API stores pictures base64-decoded from `image_data`; `./seed-products.sh [stage...]` posts each stage's mug
+- A workflow step's `timeout` goes on the step, not in `properties` (the `request` step doesn't accept it there); `topology` policies don't create namespaces, so `demo.sh` creates the four stage namespaces
+- Go tests read the CUE definitions from outside the `devkit` module, so `go test` can serve a cached result after a CUE-only change: use `-count=1`
 - defkit 1.12 quirks are in `kubevela-bucket-floci-demo/devkit/README.md`
 - Dev containers can't run k3d; use `./demo.sh --skip-cluster --skip-build` against an existing context that already has `product-catalog:latest`
