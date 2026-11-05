@@ -6,7 +6,7 @@
 # Floci (S3) and floci-gcp (Cloud Storage). It sits outside the promotion:
 # a bucket shows as "not created yet" until its stage is deployed.
 #
-# cd ../devkit && go test ./... checks BUCKETS against product-catalog.yaml's
+# cd ../defkit && go test ./... checks BUCKETS against product-catalog.yaml's
 # stages.
 apiVersion: core.oam.dev/v1beta1
 kind: Application
@@ -46,9 +46,9 @@ spec:
               # red, marking what changed from the stage before.
               BUCKETS: >-
                 aws-cue|aws|product-images-aws-cue|AWS S3 via Crossplane, CUE;
-                aws-devkit|aws|product-images-aws-devkit|AWS S3 via Crossplane, *DevKit*;
-                aws-ack|aws|product-images-aws-ack|AWS S3 via *ACK*, DevKit;
-                gcp-devkit|gcp|product-images-gcp-devkit|*GCP GCS* via *Crossplane*, DevKit
+                aws-defkit|aws|product-images-aws-defkit|AWS S3 via Crossplane, *DefKit*;
+                aws-ack|aws|product-images-aws-ack|AWS S3 via *ACK*, DefKit;
+                gcp-defkit|gcp|product-images-gcp-defkit|*GCP GCS* via *Crossplane*, DefKit
               AWS_REGION: us-west-2
               AWS_ENDPOINT_URL: http://floci.floci-system.svc.cluster.local:4566
               AWS_ACCESS_KEY_ID: test

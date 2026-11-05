@@ -1,4 +1,4 @@
-# KubeVela definition module for the bucket demo: the DevKit bucket
+# KubeVela definition module for the bucket demo: the DefKit bucket
 # components and high-availability trait. ../definitions/ holds the CUE ones
 # (bucket-aws-cue and high-availability).
 #
@@ -9,7 +9,7 @@ kind: DefinitionModule
 metadata:
   name: floci-buckets
 spec:
-  description: S3 and Cloud Storage bucket components, created by Crossplane in Floci and floci-gcp, and a high-availability trait, authored with DevKit
+  description: S3 and Cloud Storage bucket components, created by Crossplane in Floci and floci-gcp, and a high-availability trait, authored with DefKit
   maintainers:
     - name: platform-team
   minVelaVersion: v1.12.0-alpha.1

@@ -11,15 +11,15 @@
 set -euo pipefail
 
 SAMPLES="$(dirname "$0")/sample"
-STAGES="${*:-aws-cue aws-devkit aws-ack gcp-devkit}"
+STAGES="${*:-aws-cue aws-defkit aws-ack gcp-defkit}"
 
 # A stage's logo: its file name, then how the product names it.
 stage_logo() {
     case "$1" in
         aws-cue) echo "kubevela KubeVela" ;;
-        aws-devkit) echo "guidewire Guidewire" ;;
+        aws-defkit) echo "guidewire Guidewire" ;;
         aws-ack) echo "aws AWS" ;;
-        gcp-devkit) echo "gcp GCP" ;;
+        gcp-defkit) echo "gcp GCP" ;;
         *) echo "✗ unknown stage $1" >&2; exit 1 ;;
     esac
 }

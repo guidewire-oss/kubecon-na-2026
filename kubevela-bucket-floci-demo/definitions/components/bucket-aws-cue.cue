@@ -1,9 +1,9 @@
 // An S3 bucket, created by Crossplane's provider-aws-s3 in Floci.
 //
 // One of four bucket components that take the same parameters (name,
-// region, projectName). The others, bucket-aws-devkit, bucket-aws-ack and
-// bucket-gcp-devkit, are written in Go with DevKit in
-// ../../devkit/components/. An Application changes backing by changing only
+// region, projectName). The others, bucket-aws-defkit, bucket-aws-ack and
+// bucket-gcp-defkit, are written in Go with DefKit in
+// ../../defkit/components/. An Application changes backing by changing only
 // the component type.
 //
 // The bucket is named <name>-<namespace>, so each stage of the promotion
@@ -72,7 +72,7 @@ template: {
 	parameter: {
 		// +usage=Bucket name; the deploy namespace is appended
 		name: string
-		// +usage=AWS region. bucket-gcp-devkit maps it to the nearest GCS location
+		// +usage=AWS region. bucket-gcp-defkit maps it to the nearest GCS location
 		region: *"us-west-2" | "us-east-1" | "eu-west-1" | "eu-central-1" | "ap-south-1"
 		// +usage=Project the bucket belongs to, set as the app.kubernetes.io/part-of label
 		projectName: *"kubecon-na-2026" | string

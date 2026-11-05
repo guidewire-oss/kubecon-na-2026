@@ -3,7 +3,7 @@
 ## Working in this repo
 
 - `kubevela-bucket-floci-demo/demo.sh` pins `VELA_VERSION` (v1.12.0-alpha.1); the `vela` CLI must match it
-- DevKit tests: `cd kubevela-bucket-floci-demo/devkit && go test ./...` (no cluster). They check the DevKit definitions against the CUE ones, and every stage of `apps/product-catalog.yaml` against its definitions, so change CUE and DevKit together
+- DefKit tests: `cd kubevela-bucket-floci-demo/defkit && go test ./...` (no cluster). They check the DefKit definitions against the CUE ones, and every stage of `apps/product-catalog.yaml` against its definitions, so change CUE and DefKit together
 - The Application is defined once, in YAML; each stage's override policy picks its bucket component and HA trait. Overrides match traits by type, so a stage-specific trait goes in the override, not the base component
 - Behind Zscaler: `./demo.sh --zscaler`. The CA is mounted into the k3d nodes only at cluster creation, so run `./clean.sh` first
 - vela-core `CrashLoopBackOff` with `too many open files` = two k3d clusters on one Rancher Desktop VM (128 inotify instances); delete one or raise `fs.inotify.max_user_instances`
@@ -12,6 +12,6 @@
 - Adding or renaming a stage means updating `apps/bucket-browser.yaml`'s `BUCKETS` too (the bucket browser, `app/browser.py`); `apptest` fails until they match
 - The API stores pictures base64-decoded from `image_data`; `./seed-products.sh [stage...]` posts each stage's mug
 - A workflow step's `timeout` goes on the step, not in `properties` (the `request` step doesn't accept it there); `topology` policies don't create namespaces, so `demo.sh` creates the four stage namespaces
-- Go tests read the CUE definitions from outside the `devkit` module, so `go test` can serve a cached result after a CUE-only change: use `-count=1`
-- defkit 1.12 quirks are in `kubevela-bucket-floci-demo/devkit/README.md`
+- Go tests read the CUE definitions from outside the `defkit` module, so `go test` can serve a cached result after a CUE-only change: use `-count=1`
+- defkit 1.12 quirks are in `kubevela-bucket-floci-demo/defkit/README.md`
 - Dev containers can't run k3d; use `./demo.sh --skip-cluster --skip-build` against an existing context that already has `product-catalog:latest`

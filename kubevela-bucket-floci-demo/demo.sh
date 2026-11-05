@@ -2,9 +2,9 @@
 # Bucket demo on a local k3d cluster: one Application, promoted through four
 # stages, each with a different bucket backing and the same properties:
 #   aws-cue     bucket-aws-cue     S3 in Floci via Crossplane, definitions in CUE
-#   aws-devkit  bucket-aws-devkit  S3 in Floci via Crossplane, definitions in Go (DevKit)
-#   aws-ack     bucket-aws-ack     S3 in Floci via ACK, DevKit
-#   gcp-devkit  bucket-gcp-devkit  Cloud Storage in floci-gcp via Crossplane, DevKit
+#   aws-defkit  bucket-aws-defkit  S3 in Floci via Crossplane, definitions in Go (DefKit)
+#   aws-ack     bucket-aws-ack     S3 in Floci via ACK, DefKit
+#   gcp-defkit  bucket-gcp-defkit  Cloud Storage in floci-gcp via Crossplane, DefKit
 # The workflow tests the product-catalog API at each stage and waits for
 # approval before the next. As soon as the first stage is deployed, VelaUX is
 # forwarded to localhost:8000 and the bucket browser, which shows every
@@ -48,7 +48,7 @@ BROWSER_LOCAL_PORT="${BROWSER_LOCAL_PORT:-8081}"
 FORWARD_PREFIX="${TMPDIR:-/tmp}/$CLUSTER_NAME-forward"
 APP="product-catalog"
 BROWSER="bucket-browser"
-STAGES="aws-cue aws-devkit aws-ack gcp-devkit"
+STAGES="aws-cue aws-defkit aws-ack gcp-defkit"
 
 SKIP_CLUSTER=false
 SKIP_BUILD=false
@@ -281,13 +281,13 @@ install_ack() {
         --set aws.credentials.secretName=floci-credentials
 }
 
-# Both the CUE and the DevKit definitions go in: the aws-cue stage uses the
-# CUE ones, the later stages the DevKit ones.
+# Both the CUE and the DefKit definitions go in: the aws-cue stage uses the
+# CUE ones, the later stages the DefKit ones.
 apply_definitions() {
-    step "Applying the KubeVela definitions (CUE and DevKit)"
+    step "Applying the KubeVela definitions (CUE and DefKit)"
     vela def apply definitions/components/bucket-aws-cue.cue
     vela def apply definitions/traits/high-availability.cue
-    vela def apply-module ./devkit --conflict overwrite
+    vela def apply-module ./defkit --conflict overwrite
 }
 
 deploy_app() {

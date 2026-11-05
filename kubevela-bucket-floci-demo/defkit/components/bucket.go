@@ -36,7 +36,7 @@ func newBucketParams() bucketParams {
 		name: defkit.String("name").Required().
 			Description("Bucket name; the deploy namespace is appended"),
 		region: defkit.String("region").Default(Regions[0]).Values(Regions...).
-			Description("AWS region. bucket-gcp-devkit maps it to the nearest GCS location"),
+			Description("AWS region. bucket-gcp-defkit maps it to the nearest GCS location"),
 		projectName: defkit.String("projectName").Default("kubecon-na-2026").
 			Description("Project the bucket belongs to, set as the app.kubernetes.io/part-of label"),
 	}

@@ -3,7 +3,7 @@ package components
 import "github.com/oam-dev/kubevela/pkg/definition/defkit"
 
 // BucketGCPType is the component type an Application refers to.
-const BucketGCPType = "bucket-gcp-devkit"
+const BucketGCPType = "bucket-gcp-defkit"
 
 // BucketGCP is a Cloud Storage bucket that Crossplane's
 // provider-gcp-storage creates in floci-gcp. It takes the same parameters as

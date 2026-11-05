@@ -5,8 +5,8 @@
 // prod-local) and gets the HPA, PodDisruptionBudget, topology spread and pod
 // anti-affinity the platform team chose for it.
 //
-// ../../devkit/traits/high_availability.go is the DevKit version,
-// high-availability-devkit, which the devkit stages use; a test checks that
+// ../../defkit/traits/high_availability.go is the DefKit version,
+// high-availability-defkit, which the defkit stages use; a test checks that
 // both render the same for every level.
 
 "high-availability": {

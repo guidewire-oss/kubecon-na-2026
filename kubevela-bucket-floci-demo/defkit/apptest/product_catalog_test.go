@@ -1,5 +1,5 @@
 // Package apptest checks ../../apps/product-catalog.yaml, the demo's one
-// Application, against the definitions its stages use, CUE and DevKit.
+// Application, against the definitions its stages use, CUE and DefKit.
 package apptest
 
 import (
@@ -7,9 +7,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/kubecon-na-2026/kubevela-bucket-floci-demo/devkit/components"
-	"github.com/kubecon-na-2026/kubevela-bucket-floci-demo/devkit/internal/cuetest"
-	"github.com/kubecon-na-2026/kubevela-bucket-floci-demo/devkit/traits"
+	"github.com/kubecon-na-2026/kubevela-bucket-floci-demo/defkit/components"
+	"github.com/kubecon-na-2026/kubevela-bucket-floci-demo/defkit/internal/cuetest"
+	"github.com/kubecon-na-2026/kubevela-bucket-floci-demo/defkit/traits"
 	wfv1alpha1 "github.com/kubevela/pkg/apis/oam/v1alpha1"
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/common"
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1alpha1"
@@ -90,7 +90,7 @@ func findPolicy(t *testing.T, app *v1beta1.Application, name string) v1beta1.App
 }
 
 // Every stage's components and traits have a definition that accepts their
-// properties, and every DevKit definition is used by some stage.
+// properties, and every DefKit definition is used by some stage.
 func TestStagesMatchDefinitions(t *testing.T) {
 	defs := definitions(t)
 	used := map[string]bool{}

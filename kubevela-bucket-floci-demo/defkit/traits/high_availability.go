@@ -10,9 +10,9 @@ import (
 
 // HighAvailabilityType is the trait type an Application refers to. It is
 // not high-availability, the CUE trait's name, because both are installed
-// side by side: the aws-cue stage uses the CUE one and the devkit stages
+// side by side: the aws-cue stage uses the CUE one and the defkit stages
 // this one.
-const HighAvailabilityType = "high-availability-devkit"
+const HighAvailabilityType = "high-availability-defkit"
 
 // The levels an Application can ask for.
 const (
