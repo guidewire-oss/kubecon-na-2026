@@ -3,7 +3,6 @@
 | Demo | What it shows |
 |---|---|
 | [`kubevela-bucket-floci-demo`](kubevela-bucket-floci-demo/) | One KubeVela Application promoted from a CUE-defined S3 bucket to DefKit-defined (Go) S3 and Cloud Storage buckets, created by Crossplane or ACK. The clouds are the Floci and floci-gcp emulators, on a local k3d cluster |
-
 | [`vela1.12-preview-demo`](vela1.12-preview-demo/) | Runnable demo scripts and walkthrough videos for the KubeVela 1.12 preview (v1.12.0-alpha.1), one folder per feature. See below |
 
 Each demo is self-contained: see its README for what it needs and how to run it.
