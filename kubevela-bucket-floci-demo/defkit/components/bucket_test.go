@@ -4,14 +4,14 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/kubecon-na-2026/kubevela-bucket-floci-demo/devkit/internal/cuetest"
-	"github.com/kubecon-na-2026/kubevela-bucket-floci-demo/devkit/internal/paramcheck"
+	"github.com/kubecon-na-2026/kubevela-bucket-floci-demo/defkit/internal/cuetest"
+	"github.com/kubecon-na-2026/kubevela-bucket-floci-demo/defkit/internal/paramcheck"
 	"github.com/oam-dev/kubevela/pkg/cue/definition/health"
 	"github.com/oam-dev/kubevela/pkg/definition/defkit"
 )
 
-// stage is the KubeVela context of a component deployed to the aws-devkit stage.
-var stage = map[string]any{"name": "product-images", "namespace": "aws-devkit"}
+// stage is the KubeVela context of a component deployed to the aws-defkit stage.
+var stage = map[string]any{"name": "product-images", "namespace": "aws-defkit"}
 
 func render(t *testing.T, def cuetest.Definition, props BucketProperties) cuetest.Rendered {
 	t.Helper()
@@ -22,7 +22,7 @@ func render(t *testing.T, def cuetest.Definition, props BucketProperties) cuetes
 	return out
 }
 
-// ./demo.sh applies both bucket-aws-cue and bucket-aws-devkit, and the promotion
+// ./demo.sh applies both bucket-aws-cue and bucket-aws-defkit, and the promotion
 // swaps one for the other, so they must render the same resources.
 func TestBucketAWSMatchesCUE(t *testing.T) {
 	cue := cuetest.ReadDefinition(t, "components/bucket-aws-cue.cue")
@@ -41,12 +41,12 @@ func TestBucketAWSRendersBucket(t *testing.T) {
 	out := render(t, BucketAWS(), BucketProperties{Name: "product-images"})
 
 	for path, want := range map[string]any{
-		"metadata.name":                 "product-images-aws-devkit",
+		"metadata.name":                 "product-images-aws-defkit",
 		"metadata.labels":               map[string]any{"app.kubernetes.io/part-of": "kubecon-na-2026"},
 		"spec.forProvider.region":       "us-west-2",
 		"spec.forProvider.forceDestroy": true,
 		"spec.providerConfigRef.name":   "default",
-		"metadata.annotations":          map[string]any{"crossplane.io/external-name": "product-images-aws-devkit"},
+		"metadata.annotations":          map[string]any{"crossplane.io/external-name": "product-images-aws-defkit"},
 	} {
 		if got := cuetest.Get(out.Output, path); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s = %#v, want %#v", path, got, want)
@@ -113,7 +113,7 @@ func TestBucketsShareOneInterface(t *testing.T) {
 // KubeVela's own evaluator, as the controller does on each reconcile.
 func statusOf(t *testing.T, def *defkit.ComponentDefinition, status map[string]any) *health.StatusResult {
 	t.Helper()
-	output := map[string]any{"metadata": map[string]any{"name": "product-images-aws-devkit"}}
+	output := map[string]any{"metadata": map[string]any{"name": "product-images-aws-defkit"}}
 	if status != nil {
 		output["status"] = status
 	}
@@ -147,7 +147,7 @@ func TestBucketStatus(t *testing.T) {
 		}{
 			{"no status yet", nil, false, "Provisioning bucket - " + cond + ": Unknown"},
 			{"creating", conditions(cond, "False"), false, "Provisioning bucket - " + cond + ": False"},
-			{"ready", conditions(cond, "True"), true, "Bucket product-images-aws-devkit ready"},
+			{"ready", conditions(cond, "True"), true, "Bucket product-images-aws-defkit ready"},
 			// Another provisioner's condition doesn't count.
 			{"other condition", conditions("Other", "True"), false, "Provisioning bucket - " + cond + ": Unknown"},
 		}

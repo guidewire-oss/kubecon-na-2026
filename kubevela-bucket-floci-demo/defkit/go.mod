@@ -1,4 +1,4 @@
-module github.com/kubecon-na-2026/kubevela-bucket-floci-demo/devkit
+module github.com/kubecon-na-2026/kubevela-bucket-floci-demo/defkit
 
 go 1.27.1
 

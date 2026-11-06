@@ -4,15 +4,15 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/kubecon-na-2026/kubevela-bucket-floci-demo/devkit/internal/cuetest"
-	"github.com/kubecon-na-2026/kubevela-bucket-floci-demo/devkit/internal/paramcheck"
+	"github.com/kubecon-na-2026/kubevela-bucket-floci-demo/defkit/internal/cuetest"
+	"github.com/kubecon-na-2026/kubevela-bucket-floci-demo/defkit/internal/paramcheck"
 )
 
 // haContext is the KubeVela context the tests render the trait in: the
-// product-catalog-api Deployment in the aws-devkit stage.
+// product-catalog-api Deployment in the aws-defkit stage.
 var haContext = map[string]any{
 	"name":      "product-catalog-api",
-	"namespace": "aws-devkit",
+	"namespace": "aws-defkit",
 	"output":    map[string]any{"apiVersion": "apps/v1", "kind": "Deployment"},
 }
 
@@ -28,7 +28,7 @@ func renderHA(t *testing.T, def cuetest.Definition, props HighAvailabilityProper
 var ownPodSelector = map[string]any{"matchLabels": map[string]any{"app.oam.dev/component": "product-catalog-api"}}
 
 // The promotion moves from the CUE trait in aws-cue to this one in
-// aws-devkit, so for every level they must render the same resources and
+// aws-defkit, so for every level they must render the same resources and
 // patch.
 func TestHighAvailabilityMatchesCUE(t *testing.T) {
 	cue := cuetest.ReadDefinition(t, "traits/high-availability.cue")
@@ -54,7 +54,7 @@ func TestHighAvailabilityScalesEveryLevel(t *testing.T) {
 
 			checks := map[string]any{
 				"metadata.name":                    "product-catalog-api",
-				"metadata.namespace":               "aws-devkit",
+				"metadata.namespace":               "aws-defkit",
 				"spec.scaleTargetRef.kind":         "Deployment",
 				"spec.scaleTargetRef.name":         "product-catalog-api",
 				"spec.minReplicas":                 int64(want.minReplicas),

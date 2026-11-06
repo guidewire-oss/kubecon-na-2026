@@ -27,7 +27,7 @@ func (f File) ToCue() string { return string(f) }
 
 // ReadDefinition reads a hand-written CUE definition, path being relative to
 // the demo's definitions/ directory. Tests run in their package's directory,
-// so it works from any package directly under devkit/.
+// so it works from any package directly under defkit/.
 func ReadDefinition(t *testing.T, path string) File {
 	t.Helper()
 	src, err := os.ReadFile("../../definitions/" + path)

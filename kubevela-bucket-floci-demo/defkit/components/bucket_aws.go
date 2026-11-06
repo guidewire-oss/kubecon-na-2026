@@ -3,7 +3,7 @@ package components
 import "github.com/oam-dev/kubevela/pkg/definition/defkit"
 
 // BucketAWSType is the component type an Application refers to.
-const BucketAWSType = "bucket-aws-devkit"
+const BucketAWSType = "bucket-aws-defkit"
 
 // BucketAWS is the Go version of
 // ../../definitions/components/bucket-aws-cue.cue: an S3 bucket that

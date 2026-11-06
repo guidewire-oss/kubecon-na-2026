@@ -3,17 +3,17 @@
 # thing at a time:
 #
 #   aws-cue     bucket-aws-cue     + high-availability         S3 via Crossplane, CUE
-#   aws-devkit  bucket-aws-devkit  + high-availability-devkit  S3 via Crossplane, DevKit (Go)
-#   aws-ack     bucket-aws-ack     + high-availability-devkit  S3 via ACK, DevKit
-#   gcp-devkit  bucket-gcp-devkit  + high-availability-devkit  Cloud Storage via Crossplane, DevKit
+#   aws-defkit  bucket-aws-defkit  + high-availability-defkit  S3 via Crossplane, DefKit (Go)
+#   aws-ack     bucket-aws-ack     + high-availability-defkit  S3 via ACK, DefKit
+#   gcp-defkit  bucket-gcp-defkit  + high-availability-defkit  Cloud Storage via Crossplane, DefKit
 #
 # S3 is Floci and Cloud Storage is floci-gcp.
-# The CUE definitions are in ../definitions/, the DevKit ones in ../devkit/.
+# The CUE definitions are in ../definitions/, the DefKit ones in ../defkit/.
 # The workflow deploys a stage, creates a product through the API to prove
 # the app can write to its bucket, then waits for approval before the next.
 # Resume with: vela workflow resume product-catalog
 #
-# cd ../devkit && go test ./... checks the properties below against the
+# cd ../defkit && go test ./... checks the properties below against the
 # definitions.
 apiVersion: core.oam.dev/v1beta1
 kind: Application
@@ -65,7 +65,7 @@ spec:
               AWS_ENDPOINT_URL: http://floci.floci-system.svc.cluster.local:4566
               AWS_ACCESS_KEY_ID: test
               AWS_SECRET_ACCESS_KEY: test
-        # Each stage adds its own HA trait, CUE or DevKit, in its override.
+        # Each stage adds its own HA trait, CUE or DefKit, in its override.
 
   policies:
     - name: topology-aws-cue
@@ -73,21 +73,21 @@ spec:
       properties:
         clusters: ["local"]
         namespace: aws-cue
-    - name: topology-aws-devkit
+    - name: topology-aws-defkit
       type: topology
       properties:
         clusters: ["local"]
-        namespace: aws-devkit
+        namespace: aws-defkit
     - name: topology-aws-ack
       type: topology
       properties:
         clusters: ["local"]
         namespace: aws-ack
-    - name: topology-gcp-devkit
+    - name: topology-gcp-defkit
       type: topology
       properties:
         clusters: ["local"]
-        namespace: gcp-devkit
+        namespace: gcp-defkit
 
     # The bucket components append the namespace to the bucket name, so each
     # stage tells the API its bucket, and picks its HA trait and level.
@@ -107,20 +107,20 @@ spec:
 
     # A different type replaces the whole component, so each override passes
     # the bucket properties again, through the YAML anchor above.
-    - name: override-aws-devkit
+    - name: override-aws-defkit
       type: override
       properties:
         components:
           - name: product-images
-            type: bucket-aws-devkit
+            type: bucket-aws-defkit
             properties: *bucket-properties
           - name: product-catalog-api
             traits:
               - type: env
                 properties:
                   env:
-                    BUCKET_NAME: product-images-aws-devkit
-              - type: high-availability-devkit
+                    BUCKET_NAME: product-images-aws-defkit
+              - type: high-availability-defkit
                 properties:
                   level: staging
 
@@ -137,27 +137,27 @@ spec:
                 properties:
                   env:
                     BUCKET_NAME: product-images-aws-ack
-              - type: high-availability-devkit
+              - type: high-availability-defkit
                 properties:
                   level: staging
 
-    - name: override-gcp-devkit
+    - name: override-gcp-defkit
       type: override
       properties:
         components:
           - name: product-images
-            type: bucket-gcp-devkit
+            type: bucket-gcp-defkit
             properties: *bucket-properties
           - name: product-catalog-api
             traits:
               - type: env
                 properties:
                   env:
-                    BUCKET_NAME: product-images-gcp-devkit
+                    BUCKET_NAME: product-images-gcp-defkit
                     STORAGE_PROVIDER: gcp
                     STORAGE_EMULATOR_HOST: http://floci-gcp.floci-system.svc.cluster.local:4588
                     GOOGLE_CLOUD_PROJECT: floci-local
-              - type: high-availability-devkit
+              - type: high-availability-defkit
                 properties:
                   level: prod-local
 
@@ -177,18 +177,18 @@ spec:
             name: promotion-check
             price: 1
 
-      - name: approve-aws-devkit
+      - name: approve-aws-defkit
         type: suspend
-      - name: deploy-aws-devkit
+      - name: deploy-aws-defkit
         type: deploy
         properties:
-          policies: ["topology-aws-devkit", "override-aws-devkit"]
-      - name: test-aws-devkit
+          policies: ["topology-aws-defkit", "override-aws-defkit"]
+      - name: test-aws-defkit
         type: request
         timeout: 10s
         properties:
           method: POST
-          url: http://product-catalog-api.aws-devkit.svc.cluster.local:8080/products
+          url: http://product-catalog-api.aws-defkit.svc.cluster.local:8080/products
           body:
             name: promotion-check
             price: 1
@@ -209,18 +209,18 @@ spec:
             name: promotion-check
             price: 1
 
-      - name: approve-gcp-devkit
+      - name: approve-gcp-defkit
         type: suspend
-      - name: deploy-gcp-devkit
+      - name: deploy-gcp-defkit
         type: deploy
         properties:
-          policies: ["topology-gcp-devkit", "override-gcp-devkit"]
-      - name: test-gcp-devkit
+          policies: ["topology-gcp-defkit", "override-gcp-defkit"]
+      - name: test-gcp-defkit
         type: request
         timeout: 10s
         properties:
           method: POST
-          url: http://product-catalog-api.gcp-devkit.svc.cluster.local:8080/products
+          url: http://product-catalog-api.gcp-defkit.svc.cluster.local:8080/products
           body:
             name: promotion-check
             price: 1

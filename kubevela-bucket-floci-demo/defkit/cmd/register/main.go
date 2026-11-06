@@ -30,8 +30,8 @@ import (
 	"github.com/oam-dev/kubevela/pkg/definition/defkit"
 
 	// Import packages to trigger init() registration
-	_ "github.com/kubecon-na-2026/kubevela-bucket-floci-demo/devkit/components"
-	_ "github.com/kubecon-na-2026/kubevela-bucket-floci-demo/devkit/traits"
+	_ "github.com/kubecon-na-2026/kubevela-bucket-floci-demo/defkit/components"
+	_ "github.com/kubecon-na-2026/kubevela-bucket-floci-demo/defkit/traits"
 )
 
 func main() {

@@ -22,7 +22,7 @@
   - kubevela-bucket-floci-demo/app/requirements.txt
   - kubevela-bucket-floci-demo/apps/bucket-browser.yaml
   - kubevela-bucket-floci-demo/apps/product-catalog.yaml
-  - kubevela-bucket-floci-demo/devkit/apptest/bucket_browser_test.go
+  - kubevela-bucket-floci-demo/defkit/apptest/bucket_browser_test.go
   - kubevela-bucket-floci-demo/show-buckets.sh
 
 ## Past Sessions

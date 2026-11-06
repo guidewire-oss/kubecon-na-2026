@@ -14,7 +14,7 @@ One interface, two people.
 
 **The developer** writes one `application.yaml` that declares the app, its traits and its bucket. They deploy it, and the same properties go to every stage, so there's nothing to edit. Their app code stays as it is too, because the platform provides the abstraction.
 
-**The platform engineer** writes the components behind that file, in CUE or in Go with DevKit. Go is the new option: it's a language many engineers already know, with the tooling and tests they're used to. Either way the component renders the same resources.
+**The platform engineer** writes the components behind that file, in CUE or in Go with DefKit. Go is the new option: it's a language many engineers already know, with the tooling and tests they're used to. Either way the component renders the same resources.
 
 Because of that one interface, nobody downstream notices what changes underneath. Crossplane or ACK can build the bucket, and AWS S3 or GCP GCS can hold it. The platform engineer picks, and the developer's file is the same either way.
 
@@ -25,26 +25,26 @@ who writes the components behind the developer's file. A KubeVela component can
 be written two ways:
 
 - **In CUE**, as KubeVela definitions always were. `aws-cue` uses this, in `definitions/components/bucket-aws-cue.cue`.
-- **In Go, with DevKit**, which is new in KubeVela. `aws-devkit`, `aws-ack` and `gcp-devkit` use this, in `devkit/components/`.
+- **In Go, with DefKit**, which is new in KubeVela. `aws-defkit`, `aws-ack` and `gcp-defkit` use this, in `defkit/components/`.
 
 Why Go? A lot of engineers know Go better than CUE, and Go comes with an
 ecosystem they already understand: modules, IDE support, linters and libraries.
 That helps with writing the component and with writing its tests.
 
-The tests are the part to show off. `cd devkit && go test ./...` runs without a
+The tests are the part to show off. `cd defkit && go test ./...` runs without a
 cluster. It renders the Go AWS bucket and HA trait next to their CUE twins and checks
 they produce the same resources, and it checks every stage of `apps/product-catalog.yaml` against
-its definitions. That is why moving from `aws-cue` to `aws-devkit` changes
+its definitions. That is why moving from `aws-cue` to `aws-defkit` changes
 nothing for the developer.
 
-To show it: open `devkit/components/bucket_ack.go` next to the bucket browser
+To show it: open `defkit/components/bucket_ack.go` next to the bucket browser
 and point at the five lines that define the component.
 
 ## The 30-second pitch
 
 > There are two people in this demo. The developer writes one file, and it
 > never changes. The platform engineer writes the components behind it, in
-> CUE or in Go with DevKit. Go is new, and it means they can use the tools and
+> CUE or in Go with DefKit. Go is new, and it means they can use the tools and
 > tests they already know. Watch the bucket browser: approve the next stage
 > and the platform engineer swaps Crossplane for ACK, then AWS for GCP. The
 > developer's file stays exactly the same.
@@ -67,9 +67,9 @@ Run it once per visitor group. Each step names the thing to point at.
 |---|---|---|---|
 | 1 | Show `apps/product-catalog.yaml` | "This is the developer's whole input. Three bucket properties." | `name`, `region`, `projectName` |
 | 2 | Look at the bucket browser | "Stage one is live: S3 via Crossplane, written in CUE." | The `aws-cue` card, with its mug |
-| 3 | Approve the next stage in VelaUX (or `vela workflow resume product-catalog`) | "Same properties. The platform engineer now writes the component in Go, with DevKit, instead of CUE." | `DevKit` in red on the `aws-devkit` card |
+| 3 | Approve the next stage in VelaUX (or `vela workflow resume product-catalog`) | "Same properties. The platform engineer now writes the component in Go, with DefKit, instead of CUE." | `DefKit` in red on the `aws-defkit` card |
 | 4 | Approve again | "Same bucket, but ACK builds it instead of Crossplane." | `ACK` in red on the `aws-ack` card |
-| 5 | Approve again | "Now a different cloud: GCP Cloud Storage. Still the same properties." | `GCP GCS` in red on the `gcp-devkit` card |
+| 5 | Approve again | "Now a different cloud: GCP Cloud Storage. Still the same properties." | `GCP GCS` in red on the `gcp-defkit` card |
 | 6 | Say it | "Four backings. One file. Nothing the developer wrote changed." | The four cards together |
 
 Red in the bucket browser always means "this changed from the stage before".
@@ -79,9 +79,9 @@ Red in the bucket browser always means "this changed from the stage before".
 | Stage | Bucket | Created by | Written in |
 |---|---|---|---|
 | `aws-cue` | S3 in Floci | Crossplane | CUE |
-| `aws-devkit` | S3 in Floci | Crossplane | Go, with DevKit |
-| `aws-ack` | S3 in Floci | ACK | Go, with DevKit |
-| `gcp-devkit` | Cloud Storage in floci-gcp | Crossplane | Go, with DevKit |
+| `aws-defkit` | S3 in Floci | Crossplane | Go, with DefKit |
+| `aws-ack` | S3 in Floci | ACK | Go, with DefKit |
+| `gcp-defkit` | Cloud Storage in floci-gcp | Crossplane | Go, with DefKit |
 
 Floci and floci-gcp are local emulators, so the demo needs no cloud account.
 Say so if someone asks whether it's real: the controllers and the definitions
@@ -100,16 +100,16 @@ No. The code talks to one `ObjectStore` interface (`app/storage.py`). The
 platform sets `STORAGE_PROVIDER` for the stage, and the same image runs on S3
 or Cloud Storage.
 
-**Why CUE and DevKit?**
-They are two ways for the platform team to write the same definitions. DevKit
+**Why CUE and DefKit?**
+They are two ways for the platform team to write the same definitions. DefKit
 is new, and it exists because many engineers are more at home in Go. They get
 the Go ecosystem (IDE, modules, linters) for the component and for its tests.
-Go tests render the DevKit AWS bucket and HA trait next to their CUE twins and
+Go tests render the DefKit AWS bucket and HA trait next to their CUE twins and
 check they match. The ACK and GCP buckets have no CUE twin; they have their own
 tests.
 
 **Do I have to learn Go to write a component?**
-No. CUE still works, and both forms render the same resources. DevKit is there
+No. CUE still works, and both forms render the same resources. DefKit is there
 for teams that would rather write Go.
 
 **Why Crossplane and ACK?**

@@ -2,9 +2,9 @@
 # Bucket demo on a local k3d cluster: one Application, promoted through four
 # stages, each with a different bucket backing and the same properties:
 #   aws-cue     bucket-aws-cue     S3 in Floci via Crossplane, definitions in CUE
-#   aws-devkit  bucket-aws-devkit  S3 in Floci via Crossplane, definitions in Go (DevKit)
-#   aws-ack     bucket-aws-ack     S3 in Floci via ACK, DevKit
-#   gcp-devkit  bucket-gcp-devkit  Cloud Storage in floci-gcp via Crossplane, DevKit
+#   aws-defkit  bucket-aws-defkit  S3 in Floci via Crossplane, definitions in Go (DefKit)
+#   aws-ack     bucket-aws-ack     S3 in Floci via ACK, DefKit
+#   gcp-defkit  bucket-gcp-defkit  Cloud Storage in floci-gcp via Crossplane, DefKit
 # The workflow tests the product-catalog API at each stage and waits for
 # approval before the next. As soon as the first stage is deployed, VelaUX is
 # forwarded to localhost:8000 and the bucket browser, which shows every
@@ -48,7 +48,7 @@ BROWSER_LOCAL_PORT="${BROWSER_LOCAL_PORT:-8081}"
 FORWARD_PREFIX="${TMPDIR:-/tmp}/$CLUSTER_NAME-forward"
 APP="product-catalog"
 BROWSER="bucket-browser"
-STAGES="aws-cue aws-devkit aws-ack gcp-devkit"
+STAGES="aws-cue aws-defkit aws-ack gcp-defkit"
 
 SKIP_CLUSTER=false
 SKIP_BUILD=false
@@ -145,8 +145,26 @@ build_image() {
 }
 
 install_kubevela() {
-    step "Installing KubeVela $VELA_VERSION"
-    vela install --version "$VELA_VERSION" --yes
+    step "Installing KubeVela $VELA_VERSION with the demo gates"
+    helm repo add kubevela https://kubevela.github.io/charts >/dev/null 2>&1 || true
+    helm repo update kubevela >/dev/null
+    helm upgrade --install kubevela kubevela/vela-core -n vela-system --create-namespace \
+        --version "${VELA_VERSION#v}" --devel --wait=legacy --timeout 10m \
+        --set featureGates.enableCelExpressions=true \
+        --set featureGates.enableAddonComponent=true \
+        --set featureGates.enableSourceAutoUpdate=true \
+        --set featureGates.enableDefinitionInheritance=true
+
+    step "Checking the controller has the gates"
+    local args gate
+    args="$(kubectl get deploy kubevela-vela-core -n vela-system -o jsonpath='{.spec.template.spec.containers[0].args}')"
+    for gate in EnableCelExpressions EnableAddonComponent EnableSourceAutoUpdate EnableDefinitionInheritance; do
+        if ! printf '%s\n' "$args" | grep -q "$gate=true"; then
+            echo "✗ $gate is not on"
+            exit 1
+        fi
+        echo "✓ $gate=true"
+    done
 }
 
 # VelaUX downloads the addon catalog itself, so behind the proxy it needs the
@@ -157,7 +175,7 @@ trust_ca_in_velaux() {
     [ -n "$REGISTRY_CA_BUNDLE" ] || return 0
     kubectl -n vela-system create configmap registry-ca-bundle \
         --from-file=ca-bundle.crt="$REGISTRY_CA_BUNDLE" --dry-run=client -o yaml | kubectl apply -f -
-    local app="application/addon-velaux" i=0 name
+    local app="application/addon-velaux-prerelease" i=0 name
     for name in $(kubectl -n vela-system get "$app" -o jsonpath='{.spec.components[*].name}'); do
         [ "$name" = velaux-server ] && break
         i=$((i + 1))
@@ -179,8 +197,11 @@ trust_ca_in_velaux() {
 # good any app it fails to import before then. So create the admin before
 # deploying anything.
 install_velaux() {
-    step "Enabling VelaUX and creating its admin user"
-    vela addon enable velaux
+    step "Enabling prerelease VelaUX and creating its admin user"
+    vela addon registry list | grep -q '^experimental' || \
+        vela addon registry add experimental --type=helm --endpoint=https://kubevela.github.io/catalog/experimental
+    # The CLI only picks stable addon versions unless a prerelease is named.
+    vela addon enable velaux-prerelease --version "$VELA_VERSION"
     trust_ca_in_velaux
     kubectl -n vela-system rollout status deploy/velaux-server --timeout=300s
     if kubectl get --raw "/api/v1/namespaces/vela-system/services/velaux-server:8000/proxy/api/v1/auth/admin_configured" |
@@ -281,13 +302,13 @@ install_ack() {
         --set aws.credentials.secretName=floci-credentials
 }
 
-# Both the CUE and the DevKit definitions go in: the aws-cue stage uses the
-# CUE ones, the later stages the DevKit ones.
+# Both the CUE and the DefKit definitions go in: the aws-cue stage uses the
+# CUE ones, the later stages the DefKit ones.
 apply_definitions() {
-    step "Applying the KubeVela definitions (CUE and DevKit)"
+    step "Applying the KubeVela definitions (CUE and DefKit)"
     vela def apply definitions/components/bucket-aws-cue.cue
     vela def apply definitions/traits/high-availability.cue
-    vela def apply-module ./devkit --conflict overwrite
+    vela def apply-module ./defkit --conflict overwrite
 }
 
 deploy_app() {
