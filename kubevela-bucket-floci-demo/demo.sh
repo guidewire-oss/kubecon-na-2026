@@ -145,8 +145,26 @@ build_image() {
 }
 
 install_kubevela() {
-    step "Installing KubeVela $VELA_VERSION"
-    vela install --version "$VELA_VERSION" --yes
+    step "Installing KubeVela $VELA_VERSION with the demo gates"
+    helm repo add kubevela https://kubevela.github.io/charts >/dev/null 2>&1 || true
+    helm repo update kubevela >/dev/null
+    helm upgrade --install kubevela kubevela/vela-core -n vela-system --create-namespace \
+        --version "${VELA_VERSION#v}" --devel --wait=legacy --timeout 10m \
+        --set featureGates.enableCelExpressions=true \
+        --set featureGates.enableAddonComponent=true \
+        --set featureGates.enableSourceAutoUpdate=true \
+        --set featureGates.enableDefinitionInheritance=true
+
+    step "Checking the controller has the gates"
+    local args gate
+    args="$(kubectl get deploy kubevela-vela-core -n vela-system -o jsonpath='{.spec.template.spec.containers[0].args}')"
+    for gate in EnableCelExpressions EnableAddonComponent EnableSourceAutoUpdate EnableDefinitionInheritance; do
+        if ! printf '%s\n' "$args" | grep -q "$gate=true"; then
+            echo "✗ $gate is not on"
+            exit 1
+        fi
+        echo "✓ $gate=true"
+    done
 }
 
 # VelaUX downloads the addon catalog itself, so behind the proxy it needs the
@@ -157,7 +175,7 @@ trust_ca_in_velaux() {
     [ -n "$REGISTRY_CA_BUNDLE" ] || return 0
     kubectl -n vela-system create configmap registry-ca-bundle \
         --from-file=ca-bundle.crt="$REGISTRY_CA_BUNDLE" --dry-run=client -o yaml | kubectl apply -f -
-    local app="application/addon-velaux" i=0 name
+    local app="application/addon-velaux-prerelease" i=0 name
     for name in $(kubectl -n vela-system get "$app" -o jsonpath='{.spec.components[*].name}'); do
         [ "$name" = velaux-server ] && break
         i=$((i + 1))
@@ -179,8 +197,11 @@ trust_ca_in_velaux() {
 # good any app it fails to import before then. So create the admin before
 # deploying anything.
 install_velaux() {
-    step "Enabling VelaUX and creating its admin user"
-    vela addon enable velaux
+    step "Enabling prerelease VelaUX and creating its admin user"
+    vela addon registry list | grep -q '^experimental' || \
+        vela addon registry add experimental --type=helm --endpoint=https://kubevela.github.io/catalog/experimental
+    # The CLI only picks stable addon versions unless a prerelease is named.
+    vela addon enable velaux-prerelease --version "$VELA_VERSION"
     trust_ca_in_velaux
     kubectl -n vela-system rollout status deploy/velaux-server --timeout=300s
     if kubectl get --raw "/api/v1/namespaces/vela-system/services/velaux-server:8000/proxy/api/v1/auth/admin_configured" |
