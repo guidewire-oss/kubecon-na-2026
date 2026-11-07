@@ -590,11 +590,19 @@ EOF
   ok "Floci ready at $FLOCI_URL (account $FLOCI_ACCOUNT)"
 }
 
+ensure_floci_ready() {
+  say "Waiting for Floci AWS emulator"
+  k -n floci rollout status deploy/emulator --timeout 5m >/dev/null ||
+    { warn_events floci; die "Floci did not become ready"; }
+  ok "Floci ready at $FLOCI_URL (account $FLOCI_ACCOUNT)"
+}
+
 cmd_ack() {
   current_ctx
   if (( USE_FLOCI )); then
     [[ -n "${AWS_ENDPOINT_URL:-}${AWS_CREDENTIALS_FILE:-}" ]] && die "--floci sets the endpoint and credentials itself; unset AWS_ENDPOINT_URL and AWS_CREDENTIALS_FILE"
     ensure_floci
+    ensure_floci_ready
     AWS_ENDPOINT_URL=$FLOCI_URL
   fi
   say "ACK DynamoDB controller on $CTX (wants $ACK_DDB_VERSION)"
@@ -852,17 +860,19 @@ k9s_hint() {
 }
 
 show_mcp_setup() {
-  local cmdline json envargs
+  local cmdline json envargs kubeconfig_note=""
   envargs=$(mcp_env_args)
   cmdline=$("$VELA" mcp config --format command --allow-write --direct-namespace petclinic)
   json=$("$VELA" mcp config --allow-write --direct-namespace petclinic)
+  if [[ -n "${KUBECONFIG:-}" ]]; then
+    printf -v kubeconfig_note "The cluster's kubeconfig is not your default one, so every terminal that talks to it\n  needs:  export KUBECONFIG=%s" "$KUBECONFIG"
+  fi
   title "Connect your agent to the kubevela MCP server"
   cat <<EOF
 
   The server reads the cluster through the kubeconfig and context below, now $CTX.
   Writes are allowed; direct (confirmed) applies only in the petclinic namespace.
-  ${KUBECONFIG:+The cluster's kubeconfig is not your default one, so every terminal that talks to it
-  needs:  export KUBECONFIG=$KUBECONFIG}
+  $kubeconfig_note
 
   Claude Code (remove an older kubevela entry first, so this binary is the one used):
     claude mcp remove --scope user kubevela 2>/dev/null; claude mcp add --scope user $envargs kubevela -- $cmdline
