@@ -9,7 +9,7 @@ Each demo is self-contained: see its README for what it needs and how to run it.
 
 ## KubeVela 1.12 preview demo
 
-Start with [`00-setup.sh`](vela1.12-preview-demo/00-setup.sh): it creates a k3d cluster, installs vela-core 1.12.0-alpha.1 with the feature gates the demos need, and installs the prerelease VelaUX. Each feature folder holds numbered scripts that set up an example, check the result, and remove it with `--cleanup`. The `media/` folder has the walkthrough videos.
+All the demos share one k3d cluster, `kubecon`, which [`demo.sh`](kubevela-bucket-floci-demo/demo.sh) creates with vela-core 1.12.0-alpha.1, the feature gates the demos need and the prerelease VelaUX. Start with [`00-setup.sh`](vela1.12-preview-demo/00-setup.sh): it runs `demo.sh --cluster-only` if the cluster is missing, then checks it. Each feature folder holds numbered scripts that set up an example, check the result, and remove it with `--cleanup`. The `media/` folder has the walkthrough videos.
 
 | Feature | Folder | What it does |
 |---|---|---|

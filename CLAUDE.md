@@ -14,6 +14,7 @@
 - A workflow step's `timeout` goes on the step, not in `properties` (the `request` step doesn't accept it there); `topology` policies don't create namespaces, so `demo.sh` creates the four stage namespaces
 - Go tests read the CUE definitions from outside the `defkit` module, so `go test` can serve a cached result after a CUE-only change: use `-count=1`
 - defkit 1.12 quirks are in `kubevela-bucket-floci-demo/defkit/README.md`
+- Every demo uses one k3d cluster, `kubecon`, created only by `kubevela-bucket-floci-demo/demo.sh` (`--cluster-only` stops before the app); `vela1.12-preview-demo/00-setup.sh` and `mcp/demo-init-kubecon.sh` reuse it and never create or delete a cluster
 - `vela1.12-preview-demo/` holds the per-feature demo scripts and videos; its README table has one line per feature, so update it when you add or remove a feature folder
 - `posters/` holds each Letter poster as a kebab-case `.pdf` plus a same-named `.png` preview that the README embeds; regenerate the PNG when the PDF changes
 - `gh pr create` fails here (the EMU token can't open PRs); `origin` uses the SSH alias `github.com-kubevela` (`~/.ssh/id_ed25519_kubevela`), so merge locally and `git push origin main`

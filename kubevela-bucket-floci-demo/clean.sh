@@ -8,7 +8,7 @@
 #                is emptied first, since ACK can't delete a non-empty bucket)
 set -euo pipefail
 
-CLUSTER_NAME="${CLUSTER_NAME:-kubevela-bucket-floci-demo}"
+CLUSTER_NAME="${CLUSTER_NAME:-kubecon}"
 
 case "${1:-}" in
     "" | --apps-only) ;;

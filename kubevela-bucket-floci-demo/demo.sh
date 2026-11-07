@@ -10,8 +10,15 @@
 # forwarded to localhost:8000 and the bucket browser, which shows every
 # stage's bucket on one page, to localhost:8081.
 #
-# Usage: ./demo.sh [--skip-cluster] [--skip-build] [--zscaler] [--auto-approve] [--open]
+# This creates the one cluster every demo in this repo uses: the k3d cluster kubecon
+# (CLUSTER_NAME overrides it). vela1.12-preview-demo/00-setup.sh and mcp/demo-init-kubecon.sh
+# reuse it and never create their own.
+#
+# Usage: ./demo.sh [--skip-cluster] [--cluster-only] [--skip-build] [--zscaler] [--auto-approve] [--open]
 #   --skip-cluster  Use the current kubectl context instead of creating the k3d cluster
+#   --cluster-only  Stop once the platform is ready (KubeVela, VelaUX, Crossplane, ACK,
+#                   Floci, the definitions): no product-catalog image, app or promotion.
+#                   For the 1.12 and MCP demos, which only need the cluster.
 #   --skip-build    Don't build and import the product-catalog image (already in the cluster)
 #   --zscaler       Trust a TLS-inspecting proxy's CA: REGISTRY_CA_BUNDLE, or
 #                   ~/zscaler/zscaler_root.crt. Mounted into the k3d nodes at
@@ -28,7 +35,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-CLUSTER_NAME="${CLUSTER_NAME:-kubevela-bucket-floci-demo}"
+CLUSTER_NAME="${CLUSTER_NAME:-kubecon}"
 REGISTRY_CA_BUNDLE="${REGISTRY_CA_BUNDLE:-}"
 # containerd's Go TLS stack reads every file in /etc/ssl/certs.
 NODE_CA_PATH="/etc/ssl/certs/registry-ca.crt"
@@ -51,12 +58,14 @@ BROWSER="bucket-browser"
 STAGES="aws-cue aws-defkit aws-ack gcp-defkit"
 
 SKIP_CLUSTER=false
+CLUSTER_ONLY=false
 SKIP_BUILD=false
 AUTO_APPROVE=false
 OPEN=false
 for arg in "$@"; do
     case "$arg" in
         --skip-cluster) SKIP_CLUSTER=true ;;
+        --cluster-only) CLUSTER_ONLY=true; SKIP_BUILD=true ;;
         --skip-build) SKIP_BUILD=true ;;
         --zscaler) REGISTRY_CA_BUNDLE="${REGISTRY_CA_BUNDLE:-$HOME/zscaler/zscaler_root.crt}" ;;
         --auto-approve) AUTO_APPROVE=true ;;
@@ -465,6 +474,14 @@ install_crossplane
 connect_floci
 install_ack
 apply_definitions
+if [ "$CLUSTER_ONLY" = true ]; then
+    forward_velaux
+    step "Cluster $CLUSTER_NAME is ready"
+    kubectl get nodes
+    echo "Context k3d-$CLUSTER_NAME. VelaUX: http://localhost:$VELAUX_LOCAL_PORT, user admin, password $VELAUX_ADMIN_PASSWORD"
+    echo "Deploy the bucket demo on it with: ./demo.sh --skip-cluster"
+    exit 0
+fi
 deploy_app
 promote
 summary
