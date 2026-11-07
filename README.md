@@ -24,3 +24,11 @@ Start with [`00-setup.sh`](vela1.12-preview-demo/00-setup.sh): it creates a k3d 
 | Definition tests | [`testing/`](vela1.12-preview-demo/testing/) | `vela def test` runs CUE unit tests for definitions, offline for renders and health |
 
 Sources, CEL expressions, declarative addons and definition inheritance are Alpha and sit behind feature gates that are off by default; `00-setup.sh` turns them on.
+
+## Posters
+
+US Letter posters for the booth. Click a preview for the PDF.
+
+| One interface | KubeVela 1.12 | KubeVela MCP |
+|---|---|---|
+| [<img src="posters/booth-one-interface-letter.png" width="240" alt="One interface to rule them all poster">](posters/booth-one-interface-letter.pdf) | [<img src="posters/vela-1.12-features-letter.png" width="240" alt="KubeVela 1.12 features poster">](posters/vela-1.12-features-letter.pdf) | [<img src="posters/vela-mcp-letter.png" width="240" alt="KubeVela MCP poster">](posters/vela-mcp-letter.pdf) |
