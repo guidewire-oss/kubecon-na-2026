@@ -8,6 +8,11 @@
 
 Each demo is self-contained: see its README for what it needs and how to run it.
 
+## Booth guides
+
+- [`BOOTH-GUIDE.md`](BOOTH-GUIDE.md): the short guide for all three demos in booth order (one interface, 1.12 preview, MCP), with how to boot each and which `vela` CLI it needs.
+- [`kubevela-bucket-floci-demo/BOOTH-GUIDE.md`](kubevela-bucket-floci-demo/BOOTH-GUIDE.md): the full guide for the one-interface demo, with the pitch, the demo loop, questions and troubleshooting.
+
 ## KubeVela 1.12 preview demo
 
 All the demos share one k3d cluster, `kubecon`, which [`demo.sh`](kubevela-bucket-floci-demo/demo.sh) creates with vela-core 1.12.0-alpha.1, the feature gates the demos need and the prerelease VelaUX. Start with [`00-setup.sh`](vela1.12-preview-demo/00-setup.sh): it runs `demo.sh --cluster-only` if the cluster is missing, then checks it. Each feature folder holds numbered scripts that set up an example, check the result, and remove it with `--cleanup`. The `media/` folder has the walkthrough videos.
