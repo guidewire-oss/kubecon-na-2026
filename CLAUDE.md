@@ -16,6 +16,7 @@
 - defkit 1.12 quirks are in `kubevela-bucket-floci-demo/defkit/README.md`
 - Every demo uses one k3d cluster, `kubecon`, created only by `kubevela-bucket-floci-demo/demo.sh` (`--cluster-only` stops before the app); `vela1.12-preview-demo/00-setup.sh` and `mcp/demo-init-kubecon.sh` reuse it and never create or delete a cluster
 - `vela1.12-preview-demo/` holds the per-feature demo scripts and videos; its README table has one line per feature, so update it when you add or remove a feature folder
+- `BOOTH-GUIDE.md` (root) is the short guide for the three demos in booth order: one interface, 1.12 preview, MCP. The bucket demo's own guide is `kubevela-bucket-floci-demo/BOOTH-GUIDE.md`. Demos 1 and 2 need the 1.12 preview `vela` on `PATH`; MCP uses a separately built CLI (`~/workspace/kubevela/bin/vela` via `demo-init-kubecon.sh` on the demo laptop, `demo-init.sh` builds its own elsewhere), so never replace the `PATH` one
 - `posters/` holds each Letter poster as a kebab-case `.pdf` plus a same-named `.png` preview that the README embeds; regenerate the PNG when the PDF changes
 - `gh pr create` fails here (the EMU token can't open PRs); `origin` uses the SSH alias `github.com-kubevela` (`~/.ssh/id_ed25519_kubevela`), so merge locally and `git push origin main`
 - Dev containers can't run k3d; use `./demo.sh --skip-cluster --skip-build` against an existing context that already has `product-catalog:latest`
