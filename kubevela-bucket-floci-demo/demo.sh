@@ -276,7 +276,8 @@ helm_force_flag() {
 release_current() {
     [ "${REINSTALL:-false}" = true ] && return 1
     local version
-    helm list -n "$2" --all --filter "^$1\$" -q 2>/dev/null | grep -qx "$1" || return 1
+    # Query the named release directly, regardless of status. Helm 4 removed
+    # `helm list --all`; metadata also avoids list filtering and pagination.
     version="$(helm get metadata "$1" -n "$2" -o json 2>/dev/null | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)"
     [ "$version" = "$3" ]
 }
