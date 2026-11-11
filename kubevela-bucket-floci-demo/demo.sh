@@ -14,7 +14,7 @@
 # (CLUSTER_NAME overrides it). vela1.12-preview-demo/00-setup.sh and mcp/demo-init-kubecon.sh
 # reuse it and never create their own.
 #
-# Usage: ./demo.sh [--skip-cluster] [--cluster-only] [--skip-build] [--zscaler] [--auto-approve] [--open]
+# Usage: ./demo.sh [--skip-cluster] [--cluster-only] [--skip-build] [--no-registry] [--reinstall] [--zscaler] [--auto-approve] [--open]
 #   --skip-cluster  Use the current kubectl context instead of creating the k3d cluster
 #   --cluster-only  Stop once the platform is ready (KubeVela, VelaUX, Crossplane, ACK,
 #                   Floci, the definitions): no product-catalog image, app or promotion.
@@ -24,8 +24,20 @@
 #                   ~/zscaler/zscaler_root.crt. Mounted into the k3d nodes at
 #                   cluster creation and given to Crossplane and VelaUX.
 #   --auto-approve  Promote without asking. Without a terminal, demo.sh always does.
+#   --no-registry   Skip the local registry (see below): import product-catalog
+#                   straight into the nodes and pull the rest from the internet
+#   --reinstall     Upgrade KubeVela, VelaUX, Crossplane and ACK even if the right
+#                   version is already installed (by default a rerun leaves them alone)
 #   --open          On macOS, open VelaUX and the bucket browser in the default
 #                   browser once they are forwarded.
+#
+# Local registries, two k3d registry containers that outlive the cluster
+# (./clean.sh keeps them; ./clean.sh --purge-registry drops them):
+#   $REGISTRY_NAME  holds product-catalog (localhost:$REGISTRY_PORT)
+#   $DOCKERHUB_MIRROR_NAME  pull-through cache for docker.io: every Docker Hub
+#       image the cluster pulls (floci, curl, VelaUX, vela-core, the k3s system
+#       images...) is fetched from Docker Hub once, then served locally on
+#       later cluster rebuilds
 #
 # Needs: docker, k3d, kubectl, helm, go, and the vela CLI matching VELA_VERSION.
 # Tear down with ./clean.sh.
@@ -39,6 +51,15 @@ CLUSTER_NAME="${CLUSTER_NAME:-kubecon}"
 REGISTRY_CA_BUNDLE="${REGISTRY_CA_BUNDLE:-}"
 # containerd's Go TLS stack reads every file in /etc/ssl/certs.
 NODE_CA_PATH="/etc/ssl/certs/registry-ca.crt"
+REGISTRY_NAME="${REGISTRY_NAME:-kubecon-registry}"
+REGISTRY_PORT="${REGISTRY_PORT:-5000}"
+# In the cluster the registry is k3d-<name>:<port>; from the host, localhost.
+REGISTRY_IN_CLUSTER="k3d-$REGISTRY_NAME:$REGISTRY_PORT"
+REGISTRY_FROM_HOST="localhost:$REGISTRY_PORT"
+# Pull-through cache for docker.io, mirrored by every node's containerd.
+DOCKERHUB_MIRROR_NAME="${DOCKERHUB_MIRROR_NAME:-kubecon-dockerhub}"
+DOCKERHUB_MIRROR_PORT="${DOCKERHUB_MIRROR_PORT:-5001}"
+DOCKERHUB_MIRROR_IN_CLUSTER="k3d-$DOCKERHUB_MIRROR_NAME:5000"
 VELA_VERSION="v1.12.0-alpha.1"
 CROSSPLANE_VERSION="2.4.3"
 PROVIDER_AWS_VERSION="v1.23.2"
@@ -60,6 +81,8 @@ STAGES="aws-cue aws-defkit aws-ack gcp-defkit"
 SKIP_CLUSTER=false
 CLUSTER_ONLY=false
 SKIP_BUILD=false
+USE_REGISTRY=true
+REINSTALL=false
 AUTO_APPROVE=false
 OPEN=false
 for arg in "$@"; do
@@ -67,6 +90,8 @@ for arg in "$@"; do
         --skip-cluster) SKIP_CLUSTER=true ;;
         --cluster-only) CLUSTER_ONLY=true; SKIP_BUILD=true ;;
         --skip-build) SKIP_BUILD=true ;;
+        --no-registry) USE_REGISTRY=false ;;
+        --reinstall) REINSTALL=true ;;
         --zscaler) REGISTRY_CA_BUNDLE="${REGISTRY_CA_BUNDLE:-$HOME/zscaler/zscaler_root.crt}" ;;
         --auto-approve) AUTO_APPROVE=true ;;
         --open) OPEN=true ;;
@@ -115,6 +140,65 @@ check_cluster_ca() {
     fi
 }
 
+# Creates a k3d registry container unless it exists.
+# Usage: create_registry <name> <port> [extra k3d args]
+create_registry() {
+    local name="$1" port="$2"
+    shift 2
+    if k3d registry list "k3d-$name" >/dev/null 2>&1; then
+        echo "Registry $name already exists, reusing it"
+        return 1
+    fi
+    k3d registry create "$name" --port "$port" "$@"
+}
+
+# The registries are their own containers, so they survive cluster deletes and
+# keep their images. The Docker Hub cache needs the proxy CA to reach upstream.
+ensure_registry() {
+    [ "$USE_REGISTRY" = true ] || return 0
+    step "Local registries"
+    create_registry "$REGISTRY_NAME" "$REGISTRY_PORT" || true
+    if create_registry "$DOCKERHUB_MIRROR_NAME" "$DOCKERHUB_MIRROR_PORT" \
+        --proxy-remote-url https://registry-1.docker.io && [ -n "$REGISTRY_CA_BUNDLE" ]; then
+        docker cp "$REGISTRY_CA_BUNDLE" "k3d-$DOCKERHUB_MIRROR_NAME:/etc/ssl/certs/registry-ca.crt"
+        docker restart "k3d-$DOCKERHUB_MIRROR_NAME" >/dev/null
+    fi
+}
+
+# Tells every node's containerd to pull docker.io images through the cache.
+write_registries_config() {
+    REGISTRIES_CONFIG="$(mktemp "${TMPDIR:-/tmp}/$CLUSTER_NAME-registries.XXXXXX")"
+    printf 'mirrors:\n  "docker.io":\n    endpoint:\n      - http://%s\n' \
+        "$DOCKERHUB_MIRROR_IN_CLUSTER" >"$REGISTRIES_CONFIG"
+}
+
+# The registry only helps if the cluster's nodes know it, and with --skip-build
+# only if product-catalog is already in it. Otherwise fall back to the old
+# behaviour (images already imported into the nodes) and say so.
+resolve_registry() {
+    [ "$USE_REGISTRY" = true ] || return 0
+    # No docker (a dev container): the images are already in the cluster.
+    command -v docker >/dev/null || { USE_REGISTRY=false; return 0; }
+    local node="k3d-$CLUSTER_NAME-server-0"
+    if ! docker exec "$node" grep -q "$DOCKERHUB_MIRROR_IN_CLUSTER" /etc/rancher/k3s/registries.yaml 2>/dev/null; then
+        echo "⚠ $CLUSTER_NAME wasn't created with the local registries; using the images already in it (run ./clean.sh and rerun to switch)"
+        USE_REGISTRY=false
+    elif [ "$SKIP_BUILD" = true ] && ! docker manifest inspect --insecure "$REGISTRY_FROM_HOST/product-catalog:latest" >/dev/null 2>&1; then
+        echo "⚠ product-catalog isn't in the registry yet; using the image already in the cluster (rerun without --skip-build to push it)"
+        USE_REGISTRY=false
+    fi
+}
+
+# Prints a manifest with product-catalog pointed at the local registry, or as is
+# with --no-registry. Usage: render_manifest <file>
+render_manifest() {
+    if [ "$USE_REGISTRY" != true ]; then
+        cat "$1"
+        return
+    fi
+    sed -e "s#image: product-catalog:latest#image: $REGISTRY_IN_CLUSTER/product-catalog:latest#" "$1"
+}
+
 create_cluster() {
     step "Creating k3d cluster $CLUSTER_NAME"
     if k3d cluster list "$CLUSTER_NAME" >/dev/null 2>&1; then
@@ -126,38 +210,87 @@ create_cluster() {
         if [ -n "$REGISTRY_CA_BUNDLE" ]; then
             volume="--volume=$REGISTRY_CA_BUNDLE:$NODE_CA_PATH:ro@server:*;agent:*"
         fi
-        k3d cluster create "$CLUSTER_NAME" --agents 2 --wait ${volume:+"$volume"}
+        local registry=""
+        if [ "$USE_REGISTRY" = true ]; then
+            write_registries_config
+            registry="--registry-use=$REGISTRY_IN_CLUSTER --registry-config=$REGISTRIES_CONFIG"
+        fi
+        k3d cluster create "$CLUSTER_NAME" --agents 2 --wait ${registry:+$registry} ${volume:+"$volume"}
     fi
     kubectl get nodes
 }
 
-# Imports into the cluster behind the current context, which is the demo
-# cluster unless --skip-cluster picked another k3d cluster.
+# Pushes to the local registry, or imports into the cluster behind the current
+# context (the demo cluster unless --skip-cluster picked another k3d cluster).
 build_image() {
-    step "Building and importing product-catalog:latest"
-    local context cluster
-    context="$(kubectl config current-context)"
-    cluster="${context#k3d-}"
-    if [ "$cluster" = "$context" ]; then
-        echo "✗ $context is not a k3d context; load product-catalog:latest into it yourself and use --skip-build"
-        exit 1
-    fi
+    step "Building product-catalog:latest"
     docker build -t product-catalog:latest app
-    k3d image import product-catalog:latest -c "$cluster"
+    if [ "$USE_REGISTRY" = true ]; then
+        docker tag product-catalog:latest "$REGISTRY_FROM_HOST/product-catalog:latest"
+        docker push "$REGISTRY_FROM_HOST/product-catalog:latest"
+    else
+        local context cluster
+        context="$(kubectl config current-context)"
+        cluster="${context#k3d-}"
+        if [ "$cluster" = "$context" ]; then
+            echo "✗ $context is not a k3d context; load product-catalog:latest into it yourself and use --skip-build"
+            exit 1
+        fi
+        k3d image import product-catalog:latest -c "$cluster"
+    fi
     # On a rerun, pods already running the image keep the old build (the tag
     # doesn't change) until they restart: every stage's API and the browser.
     local ns name
-    kubectl get deploy -A -o jsonpath='{range .items[?(@.spec.template.spec.containers[0].image=="product-catalog:latest")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' |
+    kubectl get deploy -A -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.spec.template.spec.containers[0].image}{"\n"}{end}' |
+        awk '$3 ~ /(^|\/)product-catalog:latest$/ {print $1, $2}' |
         while read -r ns name; do
             kubectl -n "$ns" rollout restart "deploy/$name"
         done
 }
 
+# True if the vela-core controller runs with every demo gate. With an
+# argument, says which gate is on or off.
+controller_has_gates() {
+    local args gate
+    args="$(kubectl get deploy kubevela-vela-core -n vela-system -o jsonpath='{.spec.template.spec.containers[0].args}' 2>/dev/null)" || return 1
+    for gate in EnableCelExpressions EnableAddonComponent EnableSourceAutoUpdate EnableDefinitionInheritance; do
+        if ! printf '%s\n' "$args" | grep -q "$gate=true"; then
+            [ -z "${1:-}" ] || echo "✗ $gate is not on"
+            return 1
+        fi
+        [ -z "${1:-}" ] || echo "✓ $gate=true"
+    done
+}
+
+# Helm 4 applies charts server-side and fails when another manager owns a
+# field it sets (vela writes vela-addon-registry's .data.registries). Take
+# those fields over; Helm 3 has no such flag and no such conflicts.
+helm_force_flag() {
+    helm upgrade --help 2>/dev/null | grep -q -- '--force-conflicts' && echo --force-conflicts || true
+}
+
+# True if helm release $1 in namespace $2 is at chart version $3 (any status:
+# a release left "failed" by an earlier conflict is fine if its pods are up) and
+# REINSTALL isn't set. Lets a rerun (--skip-cluster) leave a working install
+# alone instead of upgrading it, which needs the internet and can fail midway.
+release_current() {
+    [ "${REINSTALL:-false}" = true ] && return 1
+    local version
+    helm list -n "$2" --all --filter "^$1\$" -q 2>/dev/null | grep -qx "$1" || return 1
+    version="$(helm get metadata "$1" -n "$2" -o json 2>/dev/null | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)"
+    [ "$version" = "$3" ]
+}
+
 install_kubevela() {
+    if release_current kubevela vela-system "${VELA_VERSION#v}" && controller_has_gates &&
+        kubectl -n vela-system rollout status deploy/kubevela-vela-core --timeout=60s >/dev/null 2>&1; then
+        step "KubeVela $VELA_VERSION is already installed with the demo gates"
+        return
+    fi
     step "Installing KubeVela $VELA_VERSION with the demo gates"
     helm repo add kubevela https://kubevela.github.io/charts >/dev/null 2>&1 || true
     helm repo update kubevela >/dev/null
-    helm upgrade --install kubevela kubevela/vela-core -n vela-system --create-namespace \
+    helm upgrade --install kubevela kubevela/vela-core -n vela-system --create-namespace $(helm_force_flag) \
         --version "${VELA_VERSION#v}" --devel --wait=legacy --timeout 10m \
         --set featureGates.enableCelExpressions=true \
         --set featureGates.enableAddonComponent=true \
@@ -165,15 +298,7 @@ install_kubevela() {
         --set featureGates.enableDefinitionInheritance=true
 
     step "Checking the controller has the gates"
-    local args gate
-    args="$(kubectl get deploy kubevela-vela-core -n vela-system -o jsonpath='{.spec.template.spec.containers[0].args}')"
-    for gate in EnableCelExpressions EnableAddonComponent EnableSourceAutoUpdate EnableDefinitionInheritance; do
-        if ! printf '%s\n' "$args" | grep -q "$gate=true"; then
-            echo "✗ $gate is not on"
-            exit 1
-        fi
-        echo "✓ $gate=true"
-    done
+    controller_has_gates verbose || exit 1
 }
 
 # VelaUX downloads the addon catalog itself, so behind the proxy it needs the
@@ -207,12 +332,25 @@ trust_ca_in_velaux() {
 # deploying anything.
 install_velaux() {
     step "Enabling prerelease VelaUX and creating its admin user"
+    if [ "${REINSTALL:-false}" != true ] &&
+        [ "$(kubectl -n vela-system get application/addon-velaux-prerelease -o jsonpath='{.status.status}' 2>/dev/null)" = running ]; then
+        echo "VelaUX addon already enabled"
+    else
+        enable_velaux_addon
+    fi
+    trust_ca_in_velaux
+    kubectl -n vela-system rollout status deploy/velaux-server --timeout=300s
+    ensure_velaux_admin
+}
+
+enable_velaux_addon() {
     vela addon registry list | grep -q '^experimental' || \
         vela addon registry add experimental --type=helm --endpoint=https://kubevela.github.io/catalog/experimental
     # The CLI only picks stable addon versions unless a prerelease is named.
     vela addon enable velaux-prerelease --version "$VELA_VERSION"
-    trust_ca_in_velaux
-    kubectl -n vela-system rollout status deploy/velaux-server --timeout=300s
+}
+
+ensure_velaux_admin() {
     if kubectl get --raw "/api/v1/namespaces/vela-system/services/velaux-server:8000/proxy/api/v1/auth/admin_configured" |
         grep -q '"configured": *true'; then
         echo "Admin already configured"
@@ -232,8 +370,12 @@ install_velaux() {
 
 install_crossplane() {
     step "Installing Crossplane $CROSSPLANE_VERSION with the S3 and Cloud Storage providers"
-    helm repo add crossplane-stable https://charts.crossplane.io/stable >/dev/null 2>&1 || true
-    helm repo update crossplane-stable
+    local skip_helm=false
+    release_current crossplane crossplane-system "$CROSSPLANE_VERSION" && skip_helm=true
+    if [ "$skip_helm" != true ]; then
+        helm repo add crossplane-stable https://charts.crossplane.io/stable >/dev/null 2>&1 || true
+        helm repo update crossplane-stable
+    fi
     # Crossplane pulls packages itself, outside containerd, so it needs the
     # proxy CA too. No arrays: macOS bash 3.2 fails on empty ones under set -u.
     local ca_args=""
@@ -243,9 +385,13 @@ install_crossplane() {
             --from-file=ca-bundle.crt="$REGISTRY_CA_BUNDLE" --dry-run=client -o yaml | kubectl apply -f -
         ca_args="--set registryCaBundleConfig.name=registry-ca-bundle --set registryCaBundleConfig.key=ca-bundle.crt"
     fi
-    # shellcheck disable=SC2086 # ca_args is a word list
-    helm upgrade --install crossplane crossplane-stable/crossplane --version "$CROSSPLANE_VERSION" \
-        --namespace crossplane-system --create-namespace --wait --timeout 10m $ca_args
+    if [ "$skip_helm" = true ]; then
+        echo "Crossplane $CROSSPLANE_VERSION already installed"
+    else
+        # shellcheck disable=SC2086 # ca_args is a word list
+        helm upgrade --install crossplane crossplane-stable/crossplane $(helm_force_flag) --version "$CROSSPLANE_VERSION" \
+            --namespace crossplane-system --create-namespace --wait --timeout 10m $ca_args
+    fi
     # The GCP ProviderConfig has no endpoint field, but the Terraform provider
     # inside reads GOOGLE_STORAGE_CUSTOM_ENDPOINT, so set it on the pod.
     kubectl apply -f - <<EOF
@@ -297,11 +443,15 @@ connect_floci() {
 # hence the unsafe-URL and path-style settings. Floci accepts any keys.
 install_ack() {
     step "Installing the ACK S3 controller $ACK_S3_VERSION"
+    if release_current ack-s3 ack-system "$ACK_S3_VERSION"; then
+        echo "ACK S3 controller already installed"
+        return
+    fi
     kubectl create namespace ack-system --dry-run=client -o yaml | kubectl apply -f -
     kubectl -n ack-system create secret generic floci-credentials \
         --from-literal=credentials="$(printf '[default]\naws_access_key_id = test\naws_secret_access_key = test\n')" \
         --dry-run=client -o yaml | kubectl apply -f -
-    helm upgrade --install ack-s3 oci://public.ecr.aws/aws-controllers-k8s/s3-chart \
+    helm upgrade --install ack-s3 oci://public.ecr.aws/aws-controllers-k8s/s3-chart $(helm_force_flag) \
         --version "$ACK_S3_VERSION" --namespace ack-system --wait --timeout 10m \
         --set aws.region=us-west-2 \
         --set aws.endpoint_url="$FLOCI_URL" \
@@ -326,8 +476,14 @@ deploy_app() {
     for ns in $STAGES; do
         kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
     done
-    vela up -f "apps/$APP.yaml"
-    vela up -f "apps/$BROWSER.yaml"
+    # vela up reads a file, not stdin.
+    local name dir
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/$CLUSTER_NAME-apps.XXXXXX")"
+    for name in "$APP" "$BROWSER"; do
+        render_manifest "apps/$name.yaml" >"$dir/$name.yaml"
+        vela up -f "$dir/$name.yaml"
+    done
+    rm -rf "$dir"
 }
 
 # Prints a workflow step's phase, or nothing before the step starts.
@@ -463,8 +619,10 @@ check_tools
 if [ "$SKIP_CLUSTER" = true ]; then
     step "Using current context $(kubectl config current-context)"
 else
+    ensure_registry
     create_cluster
 fi
+resolve_registry
 [ "$SKIP_BUILD" = true ] || build_image
 # Start the emulators first: their image pulls overlap the installs below.
 kubectl apply -f floci/floci.yaml -f floci/floci-gcp.yaml

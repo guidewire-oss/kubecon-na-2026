@@ -2,7 +2,8 @@
 # Delete the demo's k3d cluster; everything demo.sh installed lives inside it.
 # Also stops the port-forwards demo.sh started (VelaUX and the bucket browser).
 #
-# Usage: ./clean.sh [--apps-only]
+# Usage: ./clean.sh [--apps-only | --purge-registry]
+#   --purge-registry  Also delete the local registry and Docker Hub cache demo.sh created
 #   --apps-only  Keep the cluster; delete only the product-catalog application
 #                (its buckets in every stage are deleted with it; the ACK one
 #                is emptied first, since ACK can't delete a non-empty bucket)
@@ -11,8 +12,8 @@ set -euo pipefail
 CLUSTER_NAME="${CLUSTER_NAME:-kubecon}"
 
 case "${1:-}" in
-    "" | --apps-only) ;;
-    *) echo "Usage: ./clean.sh [--apps-only]" >&2; exit 2 ;;
+    "" | --apps-only | --purge-registry) ;;
+    *) echo "Usage: ./clean.sh [--apps-only | --purge-registry]" >&2; exit 2 ;;
 esac
 
 if [ "${1:-}" = "--apps-only" ]; then
@@ -37,3 +38,6 @@ for pidfile in "${TMPDIR:-/tmp}/$CLUSTER_NAME-forward-"*.pid; do
     rm -f "$pidfile"
 done
 k3d cluster delete "$CLUSTER_NAME"
+if [ "${1:-}" = "--purge-registry" ]; then
+    k3d registry delete "k3d-${REGISTRY_NAME:-kubecon-registry}" "k3d-${DOCKERHUB_MIRROR_NAME:-kubecon-dockerhub}" || true
+fi
