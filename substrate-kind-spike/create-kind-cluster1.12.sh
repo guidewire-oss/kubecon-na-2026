@@ -72,6 +72,10 @@ fi
 # 1. Cluster (same name, deletes an existing one).
 KIND_CLUSTER_NAME="$CLUSTER" ./create-kind-cluster.sh ${create_args[@]+"${create_args[@]}"}
 export KUBECONFIG="$PWD/substrate.kubeconfig"
+# Recreating the cluster changes its port and certificates. Refresh the
+# kind-substrate context in ~/.kube/config now, so k9s can follow the install.
+env -u KUBECONFIG kind export kubeconfig --name "$CLUSTER"
+echo "→ Watch the install: k9s --context kind-$CLUSTER (restart k9s if it was open)"
 
 # 2. KubeVela 1.12 with the module component. The other gates are the floci demo's.
 echo "Installing KubeVela $VELA_VERSION with featureGates.enableModuleComponent=true..."
@@ -166,6 +170,7 @@ done
 cat <<MSG
 
 ✓ Cluster '$CLUSTER' runs KubeVela $VELA_VERSION with the agent-substrate and kagent modules.
+  k9s:   k9s --context kind-$CLUSTER   (restart k9s if it was open; ~/.kube/config is refreshed)
   Host:  export KUBECONFIG=$PWD/substrate.kubeconfig
   Check: kubectl -n vela-system get applications; vela ls -A
   The model API key goes in Secret kagent-provider-values (key values.yaml) in namespace kagent.
