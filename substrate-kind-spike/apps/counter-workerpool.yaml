@@ -1,0 +1,32 @@
+# The WorkerPool for the Substrate counter demo (demos/counter), through the
+# agent-substrate module's v1 API line (type agent-substrate/v1/workerpool).
+# Same pool as upstream counter.yaml.tmpl, with the published worker image and
+# one replica so it fits next to kagent's pool on a single kind node.
+# The counter ActorTemplate selects workers by the label workload=counter.
+apiVersion: core.oam.dev/v1beta1
+kind: Application
+metadata:
+  name: counter-workerpool
+  namespace: ate-demo-counter
+spec:
+  components:
+  - name: counter
+    type: agent-substrate/v1/workerpool
+    properties:
+      spec:
+        replicas: 1
+        workerImage: ghcr.io/kagent-dev/substrate/ateworker-gvisor:v1.0.0
+        sandboxClasses:
+        - name: gvisor
+        template:
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+            requests:
+              cpu: 250m
+              memory: 1Gi
+    traits:
+    - type: labels
+      properties:
+        workload: counter

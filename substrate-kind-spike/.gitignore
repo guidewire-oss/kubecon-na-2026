@@ -1,0 +1,4 @@
+*.kubeconfig
+kind-config.yaml
+bin/
+.cache/

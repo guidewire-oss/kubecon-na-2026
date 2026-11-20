@@ -1,0 +1,995 @@
+{
+  "apiVersion": "core.oam.dev/v1beta1",
+  "kind": "Application",
+  "metadata": {
+    "name": "agent-platform",
+    "namespace": "vela-system"
+  },
+  "spec": {
+    "components": [
+      {
+        "name": "namespaces",
+        "type": "k8s-objects",
+        "properties": {
+          "objects": [
+            {
+              "apiVersion": "v1",
+              "kind": "Namespace",
+              "metadata": {
+                "name": "ate-system"
+              }
+            },
+            {
+              "apiVersion": "v1",
+              "kind": "Namespace",
+              "metadata": {
+                "name": "podcertificate-controller-system"
+              }
+            },
+            {
+              "apiVersion": "v1",
+              "kind": "Namespace",
+              "metadata": {
+                "name": "kagent",
+                "labels": {
+                  "ate.dev/api-access": "true"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "platform-base",
+        "type": "k8s-objects",
+        "properties": {
+          "objects": [
+            {
+              "apiVersion": "v1",
+              "kind": "ServiceAccount",
+              "metadata": {
+                "name": "substrate-bootstrap",
+                "namespace": "ate-system"
+              }
+            },
+            {
+              "apiVersion": "v1",
+              "kind": "ServiceAccount",
+              "metadata": {
+                "name": "substrate-bootstrap",
+                "namespace": "podcertificate-controller-system"
+              }
+            },
+            {
+              "apiVersion": "rbac.authorization.k8s.io/v1",
+              "kind": "Role",
+              "metadata": {
+                "name": "substrate-bootstrap",
+                "namespace": "ate-system"
+              },
+              "rules": [
+                {
+                  "apiGroups": [
+                    ""
+                  ],
+                  "resources": [
+                    "secrets",
+                    "configmaps"
+                  ],
+                  "verbs": [
+                    "get",
+                    "create"
+                  ]
+                }
+              ]
+            },
+            {
+              "apiVersion": "rbac.authorization.k8s.io/v1",
+              "kind": "RoleBinding",
+              "metadata": {
+                "name": "substrate-bootstrap",
+                "namespace": "ate-system"
+              },
+              "roleRef": {
+                "apiGroup": "rbac.authorization.k8s.io",
+                "kind": "Role",
+                "name": "substrate-bootstrap"
+              },
+              "subjects": [
+                {
+                  "kind": "ServiceAccount",
+                  "name": "substrate-bootstrap",
+                  "namespace": "ate-system"
+                }
+              ]
+            },
+            {
+              "apiVersion": "rbac.authorization.k8s.io/v1",
+              "kind": "Role",
+              "metadata": {
+                "name": "substrate-bootstrap",
+                "namespace": "podcertificate-controller-system"
+              },
+              "rules": [
+                {
+                  "apiGroups": [
+                    ""
+                  ],
+                  "resources": [
+                    "secrets",
+                    "configmaps"
+                  ],
+                  "verbs": [
+                    "get",
+                    "create"
+                  ]
+                }
+              ]
+            },
+            {
+              "apiVersion": "rbac.authorization.k8s.io/v1",
+              "kind": "RoleBinding",
+              "metadata": {
+                "name": "substrate-bootstrap",
+                "namespace": "podcertificate-controller-system"
+              },
+              "roleRef": {
+                "apiGroup": "rbac.authorization.k8s.io",
+                "kind": "Role",
+                "name": "substrate-bootstrap"
+              },
+              "subjects": [
+                {
+                  "kind": "ServiceAccount",
+                  "name": "substrate-bootstrap",
+                  "namespace": "ate-system"
+                }
+              ]
+            },
+            {
+              "apiVersion": "v1",
+              "kind": "ConfigMap",
+              "metadata": {
+                "name": "substrate-bootstrap-scripts",
+                "namespace": "ate-system"
+              },
+              "data": {
+                "gen-pools.sh": "#!/bin/sh\n# Generates Substrate's CA pools and JWT pool into $OUT, one directory per\n# secret, in the format kagent's installer writes (pkg/install/substrate_init.go):\n#   CA pool: pool (JSON), tls.crt, tls.key        JWT pool: pool, jwks\n# Runs in an openssl container. apply-pools.sh creates only the missing Secrets.\nset -eu\nOUT=\"${OUT:-/out}\"\nb64() { base64 -w0 \"$1\"; }\nb64url() { base64 -w0 \"$1\" | tr '+/' '-_' | tr -d '='; }\n\n# ca_pool <dir> <ed25519|p256>\nca_pool() {\n    dir=\"$OUT/$1\"; mkdir -p \"$dir\"\n    case \"$2\" in\n        ed25519) openssl genpkey -algorithm ED25519 -out \"$dir/tls.key\" ;;\n        p256) openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out \"$dir/tls.key\" ;;\n    esac\n    openssl req -x509 -new -key \"$dir/tls.key\" -days 365 -subj \"/CN=$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \\n')\" \\\n        -addext \"basicConstraints=critical,CA:TRUE\" -addext \"keyUsage=critical,digitalSignature,keyCertSign\" \\\n        -out \"$dir/tls.crt\"\n    openssl x509 -in \"$dir/tls.crt\" -outform DER -out \"$dir/cert.der\"\n    openssl pkcs8 -topk8 -nocrypt -in \"$dir/tls.key\" -outform DER -out \"$dir/key.der\"\n    printf '{\"CAs\":[{\"ID\":\"1\",\"SigningKeyPKCS8\":\"%s\",\"RootCertificateDER\":\"%s\"}],\"ActiveForSigning\":\"1\"}' \\\n        \"$(b64 \"$dir/key.der\")\" \"$(b64 \"$dir/cert.der\")\" > \"$dir/pool\"\n    rm -f \"$dir/cert.der\" \"$dir/key.der\"\n}\n\nca_pool actor-id-ca-pool ed25519\nca_pool egress-mitm-ca-pool p256\nca_pool service-dns-ca-pool ed25519\nca_pool pod-identity-ca-pool ed25519\nca_pool postgres-ca-pool ed25519\n\n# actor-id-ca-certs: the actor identity CA root, PEM.\nmkdir -p \"$OUT/actor-id-ca-certs\"\ncp \"$OUT/actor-id-ca-pool/tls.crt\" \"$OUT/actor-id-ca-certs/ca.crt\"\n\n# actor-id-jwt-pool: one ES256 authority, plus its public JWKS.\ndir=\"$OUT/actor-id-jwt-pool\"; mkdir -p \"$dir\"\nopenssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out \"$dir/key.pem\"\nopenssl pkcs8 -topk8 -nocrypt -in \"$dir/key.pem\" -outform DER -out \"$dir/key.der\"\nprintf '{\"Authorities\":[{\"ID\":\"1\",\"Algorithm\":\"ES256\",\"SigningKeyPKCS8\":\"%s\"}],\"ActiveForSigning\":\"1\"}' \\\n    \"$(b64 \"$dir/key.der\")\" > \"$dir/pool\"\n# Public point: the last 64 bytes of the SPKI DER are x||y.\nopenssl pkey -in \"$dir/key.pem\" -pubout -outform DER | tail -c 64 > \"$dir/xy.bin\"\nhead -c 32 \"$dir/xy.bin\" > \"$dir/x.bin\"; tail -c 32 \"$dir/xy.bin\" > \"$dir/y.bin\"\nprintf '{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"%s\",\"y\":\"%s\",\"kid\":\"1\",\"alg\":\"ES256\",\"use\":\"sig\"}]}' \\\n    \"$(b64url \"$dir/x.bin\")\" \"$(b64url \"$dir/y.bin\")\" > \"$dir/jwks\"\nrm -f \"$dir/key.pem\" \"$dir/key.der\" \"$dir/xy.bin\" \"$dir/x.bin\" \"$dir/y.bin\"\necho \"generated: $(ls \"$OUT\" | tr '\\n' ' ')\"\n",
+                "apply-pools.sh": "#!/bin/sh\n# Creates the Secrets and ConfigMap Substrate needs, only when missing, so reruns\n# and upgrades keep the existing keys. Reads what gen-pools.sh wrote to $OUT.\nset -eu\nOUT=\"${OUT:-/out}\"\nATE=ate-system\nPODCERT=podcertificate-controller-system\n\n# ensure <namespace> <name> <type> <key>...   (each key is a file in $OUT/<name>)\nensure() {\n    ns=\"$1\"; name=\"$2\"; type=\"$3\"; shift 3\n    if kubectl get secret -n \"$ns\" \"$name\" >/dev/null 2>&1; then\n        echo \"secret $ns/$name exists, keeping it\"\n        return\n    fi\n    args=\"\"\n    for key in \"$@\"; do args=\"$args --from-file=$key=$OUT/$name/$key\"; done\n    case \"$type\" in\n        tls) kubectl create secret tls \"$name\" -n \"$ns\" --cert=\"$OUT/$name/tls.crt\" --key=\"$OUT/$name/tls.key\" --dry-run=client -o json \\\n                 | jq --rawfile pool \"$OUT/$name/pool\" '.data.pool = ($pool | @base64)' | kubectl create -f - ;;\n        *) # shellcheck disable=SC2086\n           kubectl create secret generic \"$name\" -n \"$ns\" $args ;;\n    esac\n}\n\nensure \"$ATE\" actor-id-jwt-pool generic pool jwks\nensure \"$ATE\" actor-id-ca-pool tls\nensure \"$ATE\" actor-id-ca-certs generic ca.crt\nensure \"$ATE\" egress-mitm-ca-pool tls\nensure \"$PODCERT\" service-dns-ca-pool tls\nensure \"$PODCERT\" pod-identity-ca-pool tls\nensure \"$PODCERT\" postgres-ca-pool tls\n\n# The object store credentials the atelet and rustfs charts read. Chart defaults.\nif ! kubectl get secret -n \"$ATE\" kagent-rustfs-credentials >/dev/null 2>&1; then\n    kubectl create secret generic kagent-rustfs-credentials -n \"$ATE\" \\\n        --from-literal=AWS_ACCESS_KEY_ID=rustfsadmin --from-literal=AWS_SECRET_ACCESS_KEY=rustfsadmin\nfi\n\n# ate-api-authentication: trust the cluster's service account issuer.\nif ! kubectl get configmap -n \"$ATE\" ate-api-authentication >/dev/null 2>&1; then\n    issuer=\"$(kubectl get --raw /.well-known/openid-configuration | jq -r .issuer)\"\n    auth=\"jwtProviders:\n- name: kubernetes\n  issuer: $issuer\n  audiences: [api.$ATE.svc]\"\n    case \"$issuer\" in\n        https://kubernetes.default.svc|https://kubernetes.default.svc.cluster.local)\n            auth=\"$auth\n  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\" ;;\n    esac\n    kubectl create configmap ate-api-authentication -n \"$ATE\" --from-literal=authentication.yaml=\"$auth\"\nfi\necho \"bootstrap complete\"\n"
+              }
+            },
+            {
+              "apiVersion": "v1",
+              "kind": "ServiceAccount",
+              "metadata": {
+                "name": "postgres-setup",
+                "namespace": "kagent"
+              }
+            },
+            {
+              "apiVersion": "rbac.authorization.k8s.io/v1",
+              "kind": "Role",
+              "metadata": {
+                "name": "postgres-setup",
+                "namespace": "kagent"
+              },
+              "rules": [
+                {
+                  "apiGroups": [
+                    ""
+                  ],
+                  "resources": [
+                    "pods"
+                  ],
+                  "verbs": [
+                    "get",
+                    "list"
+                  ]
+                },
+                {
+                  "apiGroups": [
+                    ""
+                  ],
+                  "resources": [
+                    "pods/exec"
+                  ],
+                  "verbs": [
+                    "create"
+                  ]
+                },
+                {
+                  "apiGroups": [
+                    "apps"
+                  ],
+                  "resources": [
+                    "deployments"
+                  ],
+                  "verbs": [
+                    "get",
+                    "list",
+                    "watch"
+                  ]
+                }
+              ]
+            },
+            {
+              "apiVersion": "rbac.authorization.k8s.io/v1",
+              "kind": "RoleBinding",
+              "metadata": {
+                "name": "postgres-setup",
+                "namespace": "kagent"
+              },
+              "roleRef": {
+                "apiGroup": "rbac.authorization.k8s.io",
+                "kind": "Role",
+                "name": "postgres-setup"
+              },
+              "subjects": [
+                {
+                  "kind": "ServiceAccount",
+                  "name": "postgres-setup",
+                  "namespace": "kagent"
+                }
+              ]
+            },
+            {
+              "apiVersion": "v1",
+              "kind": "ConfigMap",
+              "metadata": {
+                "name": "postgres-setup-sql",
+                "namespace": "kagent"
+              },
+              "data": {
+                "kagent-setup.sql": "-- Copyright 2026 The Kagent Authors.\n--\n-- Licensed under the Apache License, Version 2.0 (the \"License\");\n-- you may not use this file except in compliance with the License.\n-- You may obtain a copy of the License at\n--\n--     http://www.apache.org/licenses/LICENSE-2.0\n--\n-- Unless required by applicable law or agreed to in writing, software\n-- distributed under the License is distributed on an \"AS IS\" BASIS,\n-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n-- See the License for the specific language governing permissions and\n-- limitations under the License.\n\n-- Creates Kagent's owner and read/write roles, their login users, and the\n-- schema. Run it with psql as a database administrator, in one transaction,\n-- with every variable set:\n--\n--   psql --no-psqlrc --set=ON_ERROR_STOP=1 --single-transaction \\\n--     --set=kagent_schema=kagent \\\n--     --set=kagent_owner_role=kagent_owner \\\n--     --set=kagent_owner_user=kagent_owner_user \\\n--     --set=kagent_owner_password= \\\n--     --set=kagent_readwrite_role=kagent_readwrite \\\n--     --set=kagent_readwrite_user=kagent_readwrite_user \\\n--     --set=kagent_readwrite_password= \\\n--     --file=setup.sql\n--\n-- The owner role owns the schema and every object migrations create. The\n-- read/write role can read and write rows but not change the schema. Each\n-- login's password is set to its variable on every run; an empty value removes\n-- it, for logins that authenticate with certificates.\n\n-- \\gset keeps the passwords out of psql's output.\nSELECT\n    set_config('kagent.setup_schema', :'kagent_schema', true) AS schema,\n    set_config('kagent.setup_owner_role', :'kagent_owner_role', true) AS owner_role,\n    set_config('kagent.setup_owner_user', :'kagent_owner_user', true) AS owner_user,\n    set_config('kagent.setup_owner_password', :'kagent_owner_password', true) AS owner_password,\n    set_config('kagent.setup_readwrite_role', :'kagent_readwrite_role', true) AS readwrite_role,\n    set_config('kagent.setup_readwrite_user', :'kagent_readwrite_user', true) AS readwrite_user,\n    set_config('kagent.setup_readwrite_password', :'kagent_readwrite_password', true) AS readwrite_password\n\\gset\n\nDO $setup$\nDECLARE\n    schema_name text := current_setting('kagent.setup_schema');\n    owner_role text := current_setting('kagent.setup_owner_role');\n    owner_user text := current_setting('kagent.setup_owner_user');\n    owner_password text := NULLIF(current_setting('kagent.setup_owner_password'), '');\n    readwrite_role text := current_setting('kagent.setup_readwrite_role');\n    readwrite_user text := current_setting('kagent.setup_readwrite_user');\n    readwrite_password text := NULLIF(current_setting('kagent.setup_readwrite_password'), '');\n    managed record;\n    role_attrs record;\n    schema_owner text;\nBEGIN\n    -- Outside a transaction, psql's autocommit discards the settings above.\n    IF schema_name = '' OR owner_role = '' OR owner_user = '' OR readwrite_role = '' OR readwrite_user = '' THEN\n        RAISE EXCEPTION 'set kagent_schema and the kagent_owner_* and kagent_readwrite_* role and user variables, and run the script in one transaction';\n    END IF;\n    -- A shared name would merge the owner's and the read/write login's privileges.\n    IF (SELECT count(DISTINCT name) FROM unnest(ARRAY[owner_role, owner_user, readwrite_role, readwrite_user]) AS name) <> 4 THEN\n        RAISE EXCEPTION 'the owner and read/write role and user names must all be different';\n    END IF;\n\n    PERFORM pg_advisory_xact_lock(hashtextextended('kagent:setup:' || schema_name, 0));\n\n    FOR managed IN SELECT * FROM (VALUES\n        (owner_role, false, NULL::text),\n        (readwrite_role, false, NULL::text),\n        (owner_user, true, owner_password),\n        (readwrite_user, true, readwrite_password)\n    ) AS roles(name, can_login, password) LOOP\n        SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolinherit\n          INTO role_attrs FROM pg_roles WHERE rolname = managed.name;\n        IF NOT FOUND THEN\n            IF managed.can_login THEN\n                EXECUTE format('CREATE ROLE %I LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', managed.name);\n            ELSE\n                EXECUTE format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', managed.name);\n            END IF;\n        ELSIF role_attrs.rolcanlogin <> managed.can_login OR role_attrs.rolsuper\n           OR role_attrs.rolcreatedb OR role_attrs.rolcreaterole OR role_attrs.rolreplication\n           OR (managed.can_login AND role_attrs.rolinherit) THEN\n            RAISE EXCEPTION 'managed PostgreSQL role \"%\" conflicts with the required attributes', managed.name;\n        END IF;\n        IF managed.can_login THEN\n            EXECUTE format('ALTER ROLE %I PASSWORD %L', managed.name, managed.password);\n        END IF;\n    END LOOP;\n\n    EXECUTE format('GRANT %I TO %I', owner_role, owner_user);\n    EXECUTE format('GRANT %I TO %I', readwrite_role, readwrite_user);\n\n    SELECT pg_get_userbyid(nspowner) INTO schema_owner FROM pg_namespace WHERE nspname = schema_name;\n    IF NOT FOUND THEN\n        EXECUTE format('CREATE SCHEMA %I AUTHORIZATION %I', schema_name, owner_role);\n    ELSIF schema_owner <> owner_role THEN\n        RAISE EXCEPTION 'PostgreSQL schema \"%\" is owned by \"%\", not \"%\"', schema_name, schema_owner, owner_role;\n    END IF;\n\n    REVOKE CREATE ON SCHEMA public FROM PUBLIC;\n    EXECUTE format('REVOKE ALL ON SCHEMA %I FROM PUBLIC', schema_name);\n    EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', schema_name, readwrite_role);\n    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I', owner_role, schema_name, readwrite_role);\n    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO %I', owner_role, schema_name, readwrite_role);\n    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT EXECUTE ON ROUTINES TO %I', owner_role, schema_name, readwrite_role);\n    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT USAGE ON TYPES TO %I', owner_role, schema_name, readwrite_role);\nEND\n$setup$;\n",
+                "substrate-setup.sql": "-- Copyright 2026 The Agent Substrate Authors\n--\n-- Licensed under the Apache License, Version 2.0 (the \"License\");\n-- you may not use this file except in compliance with the License.\n-- You may obtain a copy of the License at\n--\n--     http://www.apache.org/licenses/LICENSE-2.0\n--\n-- Unless required by applicable law or agreed to in writing, software\n-- distributed under the License is distributed on an \"AS IS\" BASIS,\n-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n-- See the License for the specific language governing permissions and\n-- limitations under the License.\n\nSELECT\n    set_config('agent_substrate.setup_schema', :'substrate_schema', true) AS schema,\n    set_config('agent_substrate.setup_owner_role', :'substrate_owner_role', true) AS owner_role,\n    set_config('agent_substrate.setup_owner_user', :'substrate_owner_user', true) AS owner_user,\n    set_config('agent_substrate.setup_owner_password', :'substrate_owner_password', true) AS owner_password,\n    set_config('agent_substrate.setup_readwrite_role', :'substrate_readwrite_role', true) AS readwrite_role,\n    set_config('agent_substrate.setup_readwrite_user', :'substrate_readwrite_user', true) AS readwrite_user,\n    set_config('agent_substrate.setup_readwrite_password', :'substrate_readwrite_password', true) AS readwrite_password\n\\gset\n\nDO $setup$\nDECLARE\n    schema_name text := current_setting('agent_substrate.setup_schema');\n    owner_role text := current_setting('agent_substrate.setup_owner_role');\n    owner_user text := current_setting('agent_substrate.setup_owner_user');\n    owner_password text := NULLIF(current_setting('agent_substrate.setup_owner_password'), '');\n    readwrite_role text := current_setting('agent_substrate.setup_readwrite_role');\n    readwrite_user text := current_setting('agent_substrate.setup_readwrite_user');\n    readwrite_password text := NULLIF(current_setting('agent_substrate.setup_readwrite_password'), '');\n    managed record;\n    role_attrs record;\n    schema_owner text;\nBEGIN\n    PERFORM pg_advisory_xact_lock(hashtextextended('agent-substrate:setup:' || schema_name, 0));\n\n    FOR managed IN SELECT * FROM (VALUES\n        (owner_role, false, NULL::text),\n        (readwrite_role, false, NULL::text),\n        (owner_user, true, owner_password),\n        (readwrite_user, true, readwrite_password)\n    ) AS roles(name, can_login, password) LOOP\n        SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolinherit\n          INTO role_attrs FROM pg_roles WHERE rolname = managed.name;\n        IF NOT FOUND THEN\n            IF managed.can_login THEN\n                EXECUTE format('CREATE ROLE %I LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', managed.name);\n            ELSE\n                EXECUTE format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', managed.name);\n            END IF;\n        ELSIF role_attrs.rolcanlogin <> managed.can_login OR role_attrs.rolsuper\n           OR role_attrs.rolcreatedb OR role_attrs.rolcreaterole OR role_attrs.rolreplication\n           OR (managed.can_login AND role_attrs.rolinherit) THEN\n            RAISE EXCEPTION 'managed PostgreSQL role \"%\" conflicts with the required attributes', managed.name;\n        END IF;\n        IF managed.can_login THEN\n            EXECUTE format('ALTER ROLE %I PASSWORD %L', managed.name, managed.password);\n        END IF;\n    END LOOP;\n\n    EXECUTE format('GRANT %I TO %I', owner_role, owner_user);\n    EXECUTE format('GRANT %I TO %I', readwrite_role, readwrite_user);\n\n    SELECT pg_get_userbyid(nspowner) INTO schema_owner FROM pg_namespace WHERE nspname = schema_name;\n    IF NOT FOUND THEN\n        EXECUTE format('CREATE SCHEMA %I AUTHORIZATION %I', schema_name, owner_role);\n    ELSIF schema_owner <> owner_role THEN\n        RAISE EXCEPTION 'PostgreSQL schema \"%\" is owned by \"%\", not \"%\"', schema_name, schema_owner, owner_role;\n    END IF;\n\n    REVOKE CREATE ON SCHEMA public FROM PUBLIC;\n    EXECUTE format('REVOKE ALL ON SCHEMA %I FROM PUBLIC', schema_name);\n    EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', schema_name, readwrite_role);\n    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I', owner_role, schema_name, readwrite_role);\n    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO %I', owner_role, schema_name, readwrite_role);\n    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT EXECUTE ON ROUTINES TO %I', owner_role, schema_name, readwrite_role);\n    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT USAGE ON TYPES TO %I', owner_role, schema_name, readwrite_role);\nEND\n$setup$;\n"
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          "namespaces"
+        ]
+      },
+      {
+        "name": "substrate-bootstrap",
+        "type": "ate-job",
+        "dependsOn": [
+          "platform-base"
+        ],
+        "properties": {
+          "serviceAccountName": "substrate-bootstrap",
+          "initContainers": [
+            {
+              "name": "generate",
+              "image": "alpine/openssl:3.5.4",
+              "command": [
+                "sh",
+                "/scripts/gen-pools.sh"
+              ],
+              "env": [
+                {
+                  "name": "OUT",
+                  "value": "/out"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "scripts",
+                  "mountPath": "/scripts"
+                },
+                {
+                  "name": "out",
+                  "mountPath": "/out"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "apply",
+              "image": "alpine/k8s:1.35.5",
+              "command": [
+                "sh",
+                "/scripts/apply-pools.sh"
+              ],
+              "env": [
+                {
+                  "name": "OUT",
+                  "value": "/out"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "scripts",
+                  "mountPath": "/scripts"
+                },
+                {
+                  "name": "out",
+                  "mountPath": "/out"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "scripts",
+              "configMap": {
+                "name": "substrate-bootstrap-scripts"
+              }
+            },
+            {
+              "name": "out",
+              "emptyDir": {}
+            }
+          ],
+          "namespace": "ate-system"
+        }
+      },
+      {
+        "name": "substrate-crds",
+        "type": "helmchart",
+        "properties": {
+          "chart": {
+            "source": "oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds",
+            "version": "1.0.0"
+          },
+          "release": {
+            "name": "substrate-crds",
+            "namespace": "ate-system"
+          },
+          "options": {
+            "wait": true,
+            "timeout": "10m",
+            "createNamespace": false
+          }
+        },
+        "dependsOn": [
+          "substrate-bootstrap"
+        ]
+      },
+      {
+        "name": "substrate-podcert",
+        "type": "helmchart",
+        "properties": {
+          "chart": {
+            "source": "oci://ghcr.io/kagent-dev/substrate/helm/substrate-podcert",
+            "version": "1.0.0"
+          },
+          "release": {
+            "name": "substrate-podcert",
+            "namespace": "podcertificate-controller-system"
+          },
+          "options": {
+            "wait": true,
+            "timeout": "10m",
+            "createNamespace": false
+          },
+          "values": {
+            "postgresClients": [
+              "kagent/kagent-controller=kagent_owner_user",
+              "kagent/kagent-controller=kagent_readwrite_user"
+            ]
+          }
+        },
+        "dependsOn": [
+          "substrate-crds"
+        ]
+      },
+      {
+        "name": "postgres",
+        "type": "k8s-objects",
+        "properties": {
+          "objects": [
+            {
+              "apiVersion": "v1",
+              "data": {
+                "pg_hba.conf": "local all all trust\nhostssl all postgres all reject\nhostssl kagent kagent_owner_user,kagent_readwrite_user,substrate_owner_user,substrate_readwrite_user all cert\n",
+                "postgresql.conf": "listen_addresses = '*'\nssl = on\nssl_cert_file = '/run/servicedns.podcert.ate.dev/credential-bundle.pem'\nssl_key_file = '/run/servicedns.podcert.ate.dev/credential-bundle.pem'\nssl_ca_file = '/run/postgres.podcert.ate.dev/trust-bundle.pem'\nhba_file = '/etc/postgresql/pg_hba.conf'\n",
+                "reload-tls.sh": "set -eu\ntrap 'exit 0' TERM INT\n\nCERT=/run/servicedns.podcert.ate.dev/credential-bundle.pem\nCA=/run/postgres.podcert.ate.dev/trust-bundle.pem\nreloaded=\"\"\nwhile true; do\n  current=\"$(sha256sum \"$CERT\" \"$CA\" /etc/postgresql/pg_hba.conf)\"\n  if [ \"$current\" != \"$reloaded\" ] \\\n    && psql -U \"$POSTGRES_USER\" -d postgres -Atc 'SELECT pg_reload_conf()' >/dev/null 2>&1; then\n    reloaded=\"$current\"\n  fi\n  sleep 60 &\n  wait $!\ndone\n"
+              },
+              "kind": "ConfigMap",
+              "metadata": {
+                "name": "kagent-postgresql",
+                "namespace": "kagent"
+              }
+            },
+            {
+              "apiVersion": "v1",
+              "kind": "PersistentVolumeClaim",
+              "metadata": {
+                "name": "kagent-postgresql",
+                "namespace": "kagent"
+              },
+              "spec": {
+                "accessModes": [
+                  "ReadWriteOnce"
+                ],
+                "resources": {
+                  "requests": {
+                    "storage": "500Mi"
+                  }
+                }
+              }
+            },
+            {
+              "apiVersion": "apps/v1",
+              "kind": "Deployment",
+              "metadata": {
+                "labels": {
+                  "app.kubernetes.io/component": "database",
+                  "app.kubernetes.io/instance": "kagent",
+                  "app.kubernetes.io/managed-by": "kagent-cli",
+                  "app.kubernetes.io/name": "kagent"
+                },
+                "name": "kagent-postgresql",
+                "namespace": "kagent"
+              },
+              "spec": {
+                "replicas": 1,
+                "selector": {
+                  "matchLabels": {
+                    "app.kubernetes.io/component": "database",
+                    "app.kubernetes.io/instance": "kagent",
+                    "app.kubernetes.io/managed-by": "kagent-cli",
+                    "app.kubernetes.io/name": "kagent"
+                  }
+                },
+                "strategy": {
+                  "type": "Recreate"
+                },
+                "template": {
+                  "metadata": {
+                    "labels": {
+                      "app.kubernetes.io/component": "database",
+                      "app.kubernetes.io/instance": "kagent",
+                      "app.kubernetes.io/managed-by": "kagent-cli",
+                      "app.kubernetes.io/name": "kagent"
+                    }
+                  },
+                  "spec": {
+                    "containers": [
+                      {
+                        "args": [
+                          "-c",
+                          "config_file=/etc/postgresql/postgresql.conf"
+                        ],
+                        "env": [
+                          {
+                            "name": "POSTGRES_DB",
+                            "value": "kagent"
+                          },
+                          {
+                            "name": "POSTGRES_USER",
+                            "value": "postgres"
+                          },
+                          {
+                            "name": "POSTGRES_HOST_AUTH_METHOD",
+                            "value": "trust"
+                          },
+                          {
+                            "name": "PGDATA",
+                            "value": "/var/lib/postgresql/data/pgdata"
+                          }
+                        ],
+                        "image": "postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15",
+                        "imagePullPolicy": "IfNotPresent",
+                        "livenessProbe": {
+                          "exec": {
+                            "command": [
+                              "sh",
+                              "-c",
+                              "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""
+                            ]
+                          },
+                          "initialDelaySeconds": 20,
+                          "periodSeconds": 10
+                        },
+                        "name": "postgresql",
+                        "ports": [
+                          {
+                            "containerPort": 5432,
+                            "name": "postgresql"
+                          }
+                        ],
+                        "readinessProbe": {
+                          "exec": {
+                            "command": [
+                              "sh",
+                              "-c",
+                              "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""
+                            ]
+                          },
+                          "initialDelaySeconds": 5,
+                          "periodSeconds": 5
+                        },
+                        "resources": {
+                          "limits": {
+                            "cpu": "500m",
+                            "memory": "512Mi"
+                          },
+                          "requests": {
+                            "cpu": "250m",
+                            "memory": "256Mi"
+                          }
+                        },
+                        "volumeMounts": [
+                          {
+                            "mountPath": "/var/lib/postgresql/data",
+                            "name": "data"
+                          },
+                          {
+                            "mountPath": "/etc/postgresql",
+                            "name": "config"
+                          },
+                          {
+                            "mountPath": "/run/servicedns.podcert.ate.dev",
+                            "name": "servicedns",
+                            "readOnly": true
+                          },
+                          {
+                            "mountPath": "/run/postgres.podcert.ate.dev",
+                            "name": "postgres-ca",
+                            "readOnly": true
+                          },
+                          {
+                            "mountPath": "/var/run/postgresql",
+                            "name": "socket"
+                          }
+                        ]
+                      }
+                    ],
+                    "initContainers": [
+                      {
+                        "command": [
+                          "/bin/sh",
+                          "/etc/postgresql/reload-tls.sh"
+                        ],
+                        "env": [
+                          {
+                            "name": "POSTGRES_USER",
+                            "value": "postgres"
+                          }
+                        ],
+                        "image": "postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15",
+                        "name": "tls-reloader",
+                        "resources": {
+                          "requests": {
+                            "cpu": "10m",
+                            "memory": "32Mi"
+                          }
+                        },
+                        "restartPolicy": "Always",
+                        "securityContext": {
+                          "runAsUser": 70
+                        },
+                        "volumeMounts": [
+                          {
+                            "mountPath": "/etc/postgresql",
+                            "name": "config"
+                          },
+                          {
+                            "mountPath": "/run/servicedns.podcert.ate.dev",
+                            "name": "servicedns",
+                            "readOnly": true
+                          },
+                          {
+                            "mountPath": "/run/postgres.podcert.ate.dev",
+                            "name": "postgres-ca",
+                            "readOnly": true
+                          },
+                          {
+                            "mountPath": "/var/run/postgresql",
+                            "name": "socket"
+                          }
+                        ]
+                      }
+                    ],
+                    "securityContext": {
+                      "fsGroup": 70,
+                      "fsGroupChangePolicy": "OnRootMismatch",
+                      "seccompProfile": {
+                        "type": "RuntimeDefault"
+                      }
+                    },
+                    "volumes": [
+                      {
+                        "name": "data",
+                        "persistentVolumeClaim": {
+                          "claimName": "kagent-postgresql"
+                        }
+                      },
+                      {
+                        "configMap": {
+                          "name": "kagent-postgresql"
+                        },
+                        "name": "config"
+                      },
+                      {
+                        "name": "servicedns",
+                        "projected": {
+                          "defaultMode": 384,
+                          "sources": [
+                            {
+                              "podCertificate": {
+                                "credentialBundlePath": "credential-bundle.pem",
+                                "keyType": "ECDSAP256",
+                                "signerName": "servicedns.podcert.ate.dev/identity"
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "name": "postgres-ca",
+                        "projected": {
+                          "sources": [
+                            {
+                              "clusterTrustBundle": {
+                                "labelSelector": {
+                                  "matchLabels": {
+                                    "podcert.ate.dev/canarying": "live"
+                                  }
+                                },
+                                "path": "trust-bundle.pem",
+                                "signerName": "postgres.podcert.ate.dev/identity"
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "emptyDir": {},
+                        "name": "socket"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "apiVersion": "v1",
+              "kind": "Service",
+              "metadata": {
+                "name": "kagent-postgresql",
+                "namespace": "kagent"
+              },
+              "spec": {
+                "ports": [
+                  {
+                    "name": "postgresql",
+                    "port": 5432,
+                    "targetPort": "postgresql"
+                  }
+                ],
+                "selector": {
+                  "app.kubernetes.io/component": "database",
+                  "app.kubernetes.io/instance": "kagent",
+                  "app.kubernetes.io/managed-by": "kagent-cli",
+                  "app.kubernetes.io/name": "kagent"
+                }
+              }
+            },
+            {
+              "apiVersion": "v1",
+              "kind": "Secret",
+              "metadata": {
+                "name": "kagent-postgres-owner",
+                "namespace": "kagent"
+              },
+              "stringData": {
+                "ownerConnectionString": "postgresql://kagent_owner_user@kagent-postgresql.kagent.svc:5432/kagent?sslmode=verify-full&sslrootcert=/run/postgres.podcert.ate.dev/trust-bundle.pem&sslcert=/run/postgres.podcert.ate.dev/kagent_owner_user.pem&sslkey=/run/postgres.podcert.ate.dev/kagent_owner_user.pem"
+              },
+              "type": "Opaque"
+            },
+            {
+              "apiVersion": "v1",
+              "kind": "Secret",
+              "metadata": {
+                "name": "kagent-postgres-readwrite",
+                "namespace": "kagent"
+              },
+              "stringData": {
+                "readWriteConnectionString": "postgresql://kagent_readwrite_user@kagent-postgresql.kagent.svc:5432/kagent?sslmode=verify-full&sslrootcert=/run/postgres.podcert.ate.dev/trust-bundle.pem&sslcert=/run/postgres.podcert.ate.dev/kagent_readwrite_user.pem&sslkey=/run/postgres.podcert.ate.dev/kagent_readwrite_user.pem"
+              },
+              "type": "Opaque"
+            },
+            {
+              "apiVersion": "v1",
+              "kind": "Secret",
+              "metadata": {
+                "name": "substrate-postgres-readwrite",
+                "namespace": "ate-system"
+              },
+              "stringData": {
+                "readWriteConnectionString": "postgresql://substrate_readwrite_user@kagent-postgresql.kagent.svc:5432/kagent?sslmode=verify-full&sslrootcert=/run/servicedns.podcert.ate.dev/trust-bundle.pem&sslcert=/run/postgres.podcert.ate.dev/substrate_readwrite_user.pem&sslkey=/run/postgres.podcert.ate.dev/substrate_readwrite_user.pem"
+              },
+              "type": "Opaque"
+            },
+            {
+              "apiVersion": "v1",
+              "kind": "Secret",
+              "metadata": {
+                "name": "substrate-postgres-owner",
+                "namespace": "ate-system"
+              },
+              "stringData": {
+                "ownerConnectionString": "postgresql://substrate_owner_user@kagent-postgresql.kagent.svc:5432/kagent?sslmode=verify-full&sslrootcert=/run/servicedns.podcert.ate.dev/trust-bundle.pem&sslcert=/run/postgres.podcert.ate.dev/substrate_owner_user.pem&sslkey=/run/postgres.podcert.ate.dev/substrate_owner_user.pem"
+              },
+              "type": "Opaque"
+            }
+          ]
+        },
+        "dependsOn": [
+          "substrate-podcert"
+        ]
+      },
+      {
+        "name": "postgres-setup",
+        "type": "ate-job",
+        "dependsOn": [
+          "postgres"
+        ],
+        "properties": {
+          "serviceAccountName": "postgres-setup",
+          "namespace": "kagent",
+          "containers": [
+            {
+              "name": "setup",
+              "image": "alpine/k8s:1.35.5",
+              "command": [
+                "sh",
+                "-c",
+                "set -eu\nkubectl -n kagent rollout status deployment/kagent-postgresql --timeout=5m\n{ echo 'BEGIN;'; cat /sql/kagent-setup.sql; echo; cat /sql/substrate-setup.sql; echo; echo 'COMMIT;'; } | \\\nkubectl -n kagent exec -i deployment/kagent-postgresql -c postgresql -- \\\n  psql --no-psqlrc --set=ON_ERROR_STOP=1 --username postgres --dbname kagent \\\n  --set=kagent_schema=kagent --set=kagent_owner_role=kagent_owner --set=kagent_owner_user=kagent_owner_user --set=kagent_owner_password= \\\n  --set=kagent_readwrite_role=kagent_readwrite --set=kagent_readwrite_user=kagent_readwrite_user --set=kagent_readwrite_password= \\\n  --set=substrate_schema=substrate --set=substrate_owner_role=substrate_owner --set=substrate_owner_user=substrate_owner_user --set=substrate_owner_password= \\\n  --set=substrate_readwrite_role=substrate_readwrite --set=substrate_readwrite_user=substrate_readwrite_user --set=substrate_readwrite_password=\n"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "sql",
+                  "mountPath": "/sql"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "sql",
+              "configMap": {
+                "name": "postgres-setup-sql"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "substrate-atelet",
+        "type": "helmchart",
+        "properties": {
+          "chart": {
+            "source": "oci://ghcr.io/kagent-dev/substrate/helm/substrate-atelet",
+            "version": "1.0.0"
+          },
+          "release": {
+            "name": "substrate-atelet",
+            "namespace": "ate-system"
+          },
+          "options": {
+            "wait": true,
+            "timeout": "10m",
+            "createNamespace": false
+          },
+          "values": {
+            "ateApi": {
+              "authorization": {
+                "bootstrapOwners": [
+                  "spiffe://cluster.local/ns/kagent/sa/kagent-controller",
+                  "system:serviceaccount:ate-system:ate-client"
+                ]
+              }
+            },
+            "atenetRouter": {
+              "ingressAllowedSPIFFEIDs": [
+                "spiffe://cluster.local/ns/kagent/sa/kagent-controller"
+              ]
+            },
+            "credentialProvider": {
+              "namespacePolicies": [
+                {
+                  "allowedNamespaces": [
+                    "kagent"
+                  ],
+                  "atespace": "kagent"
+                }
+              ]
+            },
+            "preview": [
+              "PerTemplateSnapshotLocation",
+              "GoldenEgressPolicy"
+            ],
+            "objectStore": {
+              "backend": "s3",
+              "credentialsSecret": "kagent-rustfs-credentials",
+              "endpoint": "http://rustfs.ate-system.svc:9000",
+              "pathStyle": true,
+              "region": "us-east-1"
+            }
+          }
+        },
+        "dependsOn": [
+          "substrate-podcert"
+        ]
+      },
+      {
+        "name": "substrate",
+        "type": "helmchart",
+        "properties": {
+          "chart": {
+            "source": "oci://ghcr.io/kagent-dev/substrate/helm/substrate",
+            "version": "1.0.0"
+          },
+          "release": {
+            "name": "substrate",
+            "namespace": "ate-system"
+          },
+          "options": {
+            "wait": true,
+            "timeout": "10m",
+            "createNamespace": false
+          },
+          "values": {
+            "ateApi": {
+              "authorization": {
+                "bootstrapOwners": [
+                  "spiffe://cluster.local/ns/kagent/sa/kagent-controller",
+                  "system:serviceaccount:ate-system:ate-client"
+                ]
+              }
+            },
+            "atenetRouter": {
+              "ingressAllowedSPIFFEIDs": [
+                "spiffe://cluster.local/ns/kagent/sa/kagent-controller"
+              ]
+            },
+            "credentialProvider": {
+              "namespacePolicies": [
+                {
+                  "allowedNamespaces": [
+                    "kagent"
+                  ],
+                  "atespace": "kagent"
+                }
+              ]
+            },
+            "preview": [
+              "PerTemplateSnapshotLocation",
+              "GoldenEgressPolicy"
+            ],
+            "atelet": {
+              "enabled": false
+            },
+            "postgres": {
+              "clientCertificates": {
+                "enabled": true
+              }
+            }
+          },
+          "healthStatus": [
+            {
+              "resource": {
+                "kind": "Deployment",
+                "name": "ate-api-server"
+              },
+              "condition": {
+                "type": "Available"
+              }
+            },
+            {
+              "resource": {
+                "kind": "Deployment",
+                "name": "ate-controller"
+              },
+              "condition": {
+                "type": "Available"
+              }
+            }
+          ]
+        },
+        "dependsOn": [
+          "substrate-atelet",
+          "postgres-setup"
+        ]
+      },
+      {
+        "name": "kagent-crds",
+        "type": "helmchart",
+        "properties": {
+          "chart": {
+            "source": "oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds",
+            "version": "1.0.1"
+          },
+          "release": {
+            "name": "kagent-crds",
+            "namespace": "kagent"
+          },
+          "options": {
+            "wait": true,
+            "timeout": "10m",
+            "createNamespace": false
+          }
+        },
+        "dependsOn": [
+          "platform-base"
+        ]
+      },
+      {
+        "name": "kagent",
+        "type": "helmchart",
+        "properties": {
+          "chart": {
+            "source": "oci://ghcr.io/kagent-dev/kagent/helm/kagent",
+            "version": "1.0.1"
+          },
+          "release": {
+            "name": "kagent",
+            "namespace": "kagent"
+          },
+          "options": {
+            "wait": true,
+            "timeout": "10m",
+            "createNamespace": false
+          },
+          "values": {
+            "config": {
+              "server": {
+                "grpcReflection": true
+              },
+              "substrate": {
+                "apiEndpoint": "dns:///api.ate-system.svc:443",
+                "routerUrl": "https://atenet-router.ate-system.svc:443"
+              }
+            },
+            "controller": {
+              "substrateClientCertificate": {
+                "enabled": true
+              }
+            },
+            "database": {
+              "postgres": {
+                "clientCertificate": {
+                  "enabled": true
+                }
+              }
+            },
+            "harnesses": {
+              "enabled": true
+            },
+            "providers": {
+              "default": "openAI",
+              "openAI": {
+                "config": {
+                  "apiFormat": "responses"
+                },
+                "model": "gpt-5-mini"
+              }
+            },
+            "substrateWorkerPool": {
+              "create": true,
+              "workerImage": "ghcr.io/kagent-dev/substrate/ateworker-gvisor:v1.0.0"
+            }
+          },
+          "valuesFrom": [
+            {
+              "kind": "Secret",
+              "name": "kagent-provider-values",
+              "namespace": "kagent",
+              "key": "values.yaml",
+              "optional": true
+            }
+          ]
+        },
+        "dependsOn": [
+          "substrate",
+          "kagent-crds"
+        ]
+      }
+    ]
+  }
+}

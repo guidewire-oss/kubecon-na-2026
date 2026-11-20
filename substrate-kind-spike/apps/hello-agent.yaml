@@ -1,0 +1,25 @@
+# A kagent Agent through the kagent module's v1 API line (type kagent/v1/agent).
+# kagent runs it as an Agent Substrate actor on the kagent-default WorkerPool.
+# Chatting needs a real model key: put providers.openAI.apiKey in Secret
+# kagent-provider-values (key values.yaml) in namespace kagent.
+apiVersion: core.oam.dev/v1beta1
+kind: Application
+metadata:
+  name: hello-agent
+  namespace: kagent
+spec:
+  components:
+  - name: hello-agent
+    type: kagent/v1/agent
+    properties:
+      spec:
+        harnessRef:
+          name: kagent-default
+        template:
+          inline:
+            description: Says hello and explains what Agent Substrate is.
+            systemPrompt: |
+              You are a friendly demo agent running on Agent Substrate, deployed
+              by KubeVela from the kagent module. Answer briefly.
+            modelConfig:
+              name: default-model-config
